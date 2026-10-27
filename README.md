@@ -1,6 +1,6 @@
 <div align="center">
 
-# Finger Counter <sub><sup>**한국어** · [English](README.en.md)</sup></sub>
+# Finger Counter <sub><sup><sub>**한국어** · [English](README.en.md)</sub></sup></sub>
 
 스마트폰 카메라 영상에서 펴고 있는 손가락 수(0–5)를 실시간으로 세는 비전 검사 시스템
 

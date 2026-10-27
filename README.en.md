@@ -1,6 +1,6 @@
 <div align="center">
 
-# Finger Counter <sub><sup>[한국어](README.md) · **English**</sup></sub>
+# Finger Counter <sub><sup><sub>[한국어](README.md) · **English**</sub></sup></sub>
 
 A real-time vision inspector that counts raised fingers (0–5) in a smartphone camera stream
 
