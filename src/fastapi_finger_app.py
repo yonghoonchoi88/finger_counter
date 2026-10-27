@@ -32,6 +32,7 @@ from src.finger_counter import count_fingers, draw_result
 ROOT = Path(__file__).resolve().parents[1]
 HTML_FILE = ROOT / "web" / "finger_inspection.html"
 STATIC_DIR = ROOT / "web" / "static"      # style.css, app.js
+DOCS_IMAGE_DIR = ROOT / "docs" / "images"  # 동작 원리 그림 (README 와 같은 파일)
 
 HISTORY_SIZE = 5      # 최근 몇 프레임을 볼지
 STABLE_COUNT = 3      # 그중 몇 번 같아야 화면 숫자를 바꿀지
@@ -270,6 +271,8 @@ app = FastAPI(title="손가락 개수 실시간 검사", lifespan=lifespan)
 
 # web/static 폴더의 CSS·JS 파일을 /static/... 주소로 제공합니다.
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# docs/images 의 동작 원리 그림을 /assets/... 주소로 제공합니다. (웹 화면 ④ 섹션)
+app.mount("/assets", StaticFiles(directory=DOCS_IMAGE_DIR), name="assets")
 
 
 # ⑩ 요청 Body 검증 (Pydantic)

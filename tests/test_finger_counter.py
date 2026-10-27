@@ -85,6 +85,8 @@ def test_page_and_static_files(client):
     assert page.status_code == 200 and "/static/app.js" in page.text
     assert client.get("/static/style.css").status_code == 200
     assert "refreshStatus" in client.get("/static/app.js").text
+    for name in ("architecture_ko.png", "architecture_en.png", "pipeline_ko.jpg", "pipeline_en.jpg"):
+        assert client.get(f"/assets/{name}").status_code == 200
 
 
 def test_status_flow_with_target(client):

@@ -73,6 +73,24 @@
       <div class="note">학습용 규칙 기반 검사입니다. 손가락을 붙이면 1개로 셀 수 있고, 손이 옆으로 누우면 손목을 손가락으로 오인할 수 있습니다.</div>
     </aside>
   </div>
+
+  <section class="panel" id="how-it-works">
+    <div class="how-head">
+      <span class="title" style="margin:0">④ 동작 원리</span>
+      <div class="seg" role="tablist" aria-label="그림 선택">
+        <button type="button" class="active" data-view="architecture" role="tab" aria-selected="true">데이터 흐름</button>
+        <button type="button" data-view="pipeline" role="tab" aria-selected="false">알고리즘</button>
+      </div>
+      <div class="seg" role="group" aria-label="언어">
+        <button type="button" class="active" data-lang="ko" aria-pressed="true">한국어</button>
+        <button type="button" data-lang="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+    <a id="how-link" href="/assets/architecture_ko.png" target="_blank" rel="noopener">
+      <img id="how-image" src="/assets/architecture_ko.png" alt="데이터 흐름 그림" loading="lazy">
+    </a>
+    <p class="hint">스마트폰 영상 → FastAPI → OpenCV 판정 → 결과 안정화 → 이 화면 순서로 데이터가 이동합니다. 그림을 누르면 크게 볼 수 있습니다.</p>
+  </section>
 </main>
 <script src="/static/app.js"></script>
 </body>

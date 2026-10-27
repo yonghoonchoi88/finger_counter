@@ -163,5 +163,26 @@ async function refreshStatus() {
 
 img.addEventListener('load', sizeCanvas);
 new ResizeObserver(sizeCanvas).observe(img);
+// ---------- ④ 동작 원리 그림 (데이터 흐름 / 알고리즘 · 한국어 / English) ----------
+const how = {view: 'architecture', lang: 'ko'};
+const HOW_FILES = {architecture: 'png', pipeline: 'jpg'};
+const HOW_ALT = {architecture: '데이터 흐름 그림', pipeline: '알고리즘 단계 그림'};
+function showHow() {
+  const src = `/assets/${how.view}_${how.lang}.${HOW_FILES[how.view]}`;
+  $('how-image').src = src;
+  $('how-image').alt = HOW_ALT[how.view];
+  $('how-link').href = src;
+  document.querySelectorAll('#how-it-works [data-view]').forEach(b => {
+    const on = b.dataset.view === how.view;
+    b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('#how-it-works [data-lang]').forEach(b => {
+    const on = b.dataset.lang === how.lang;
+    b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+  });
+}
+document.querySelectorAll('#how-it-works [data-view]').forEach(b => b.onclick = () => { how.view = b.dataset.view; showHow(); });
+document.querySelectorAll('#how-it-works [data-lang]').forEach(b => b.onclick = () => { how.lang = b.dataset.lang; showHow(); });
+
 setInterval(refreshStatus, 400);
 refreshStatus(); sizeCanvas();
