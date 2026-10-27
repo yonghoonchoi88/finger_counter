@@ -152,18 +152,6 @@ python -m src.finger_batch_test --dir samples/fingers_demo # 가상 손
 </details>
 
 <details>
-<summary><b>자주 막히는 곳</b></summary>
-
-| 증상 | 해결 |
-|---|---|
-| `localhost:8000`이 계속 "로드 중" | 다른 프로그램이 8000번 사용 중 → `--port 8001` |
-| `address already in use` | 이전 서버가 영상 연결 때문에 안 꺼짐 → `ss -ltnp \| grep 8001` 후 `kill -9 <PID>`, 다음부터 `--timeout-graceful-shutdown 2` |
-| 카메라 연결 실패 | 주소 끝 `/video` 확인. 학교·회사 Wi-Fi는 기기 간 통신을 막는 경우가 많음 → 휴대폰 핫스팟 사용 |
-| "손 없음" | 오른쪽 위 마스크 확인. 피부색과 비슷한 배경(나무 책상·베이지 벽) 피하기, 단색 배경이면 이진화 방식 변경 |
-
-</details>
-
-<details>
 <summary><b>프로젝트 구조</b></summary>
 
 ```

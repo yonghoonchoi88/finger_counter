@@ -153,17 +153,6 @@ Outputs: `reports/finger_batch_results.csv`, `outputs/finger_batch/*_result.jpg`
 
 </details>
 
-<details>
-<summary><b>Troubleshooting</b></summary>
-
-| Symptom | Fix |
-|---|---|
-| `localhost:8000` keeps loading | Another program holds port 8000 → use `--port 8001` |
-| `address already in use` | An old server is kept alive by an open video stream → `ss -ltnp \| grep 8001`, `kill -9 <PID>`; use `--timeout-graceful-shutdown 2` next time |
-| Camera won't connect | Check the `/video` suffix. Campus or office Wi-Fi often blocks device-to-device traffic → use a phone hotspot |
-| "No hand" | Check the mask preview. Avoid skin-like backgrounds (wood, beige walls); on a plain background, switch the segmentation mode |
-
-</details>
 
 <details>
 <summary><b>Project structure</b></summary>
