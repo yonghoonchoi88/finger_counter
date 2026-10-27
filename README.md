@@ -79,7 +79,10 @@
 | **실제 스마트폰 사진 (개선 후)** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
 | 가상 손 이미지 (0~5개 × 5) | 30 | 1.00 | | | | | |
 
-**문제 해결 과정 (0.48 → 0.92)**
+결과 이미지를 한 장씩 분석해 **소매에 잘린 손목이 손가락으로 세어지는 문제**를 찾았고, 손목 판정 규칙을 폭에서 방향으로 바꿔 정확도를 0.48에서 0.92로 올렸습니다.
+
+<details>
+<summary><b>문제 해결 과정 자세히 보기</b></summary>
 
 1. **관찰:** 이진화 마스크는 거의 완벽했는데 개수가 하나씩 많거나 적었습니다. 결과 이미지 25장을 모두 열어 원인을 분류했습니다.
 2. **원인:**
@@ -90,15 +93,19 @@
 
 남은 오답 2장은 손을 기울여 손바닥 옆면이 잡힌 경우와, 손이 너무 가까워 손가락이 화면 밖으로 잘린 경우입니다. 25장에 과하게 맞추지 않으려고 여기서 멈췄습니다.
 
+</details>
+
 ## 품질 관리
 
-```bash
-python -m pytest -q        # 41 passed
-python -m src.finger_batch_test   # 폴더 이름(1~5)을 정답으로 정확도 측정 → CSV 보고서
-```
+자동 테스트 41개(pytest)로 핵심 로직과 서버 API를 검증하고, 실제 버그를 재현한 회귀 테스트로 같은 문제가 다시 생기지 않게 막았습니다.
 
 <details>
-<summary><b>테스트 구성</b></summary>
+<summary><b>테스트 구성과 실행 명령</b></summary>
+
+```bash
+python -m pytest -q               # 41 passed
+python -m src.finger_batch_test   # 폴더 이름(1~5)을 정답으로 정확도 측정 → CSV 보고서
+```
 
 | 구분 | 확인 내용 |
 |---|---|
@@ -112,6 +119,9 @@ python -m src.finger_batch_test   # 폴더 이름(1~5)을 정답으로 정확도
 
 ## 실행 방법
 
+<details>
+<summary><b>설치와 실행 (스마트폰 IP Webcam)</b></summary>
+
 ```bash
 git clone https://github.com/yonghoonchoi88/finger_counter.git && cd finger_counter
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -122,6 +132,8 @@ uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful
 1. 스마트폰 IP Webcam 앱에서 서버를 시작합니다 (PC와 같은 Wi-Fi).
 2. 브라우저 `http://localhost:8000`에서 주소(예: `http://192.168.0.25:8080/video`)를 입력하고 **카메라 연결**을 누릅니다.
 3. 손 전체가 들어가도록 ROI를 드래그합니다. 목표 개수를 누르면 OK/NG로 판정합니다.
+
+</details>
 
 <details>
 <summary><b>스마트폰 없이 실행 · 정확도 측정</b></summary>
@@ -191,11 +203,16 @@ finger_counter/
 
 손가락을 붙이면 1개로 셀 수 있고, 손이 옆으로 누우면 손목 방향 규칙이 맞지 않습니다. 얼굴·팔 등 다른 피부가 ROI에 크게 들어오면 손으로 오인할 수 있습니다.
 
+<details>
+<summary><b>다음 단계</b></summary>
+
 - [ ] 주먹(0개) 사진과 다른 장소·조명 사진으로 테스트셋 확장 (현재 한 장소, 1~5개 × 5장)
 - [ ] 손목 방향을 고정값(아래쪽) 대신 손의 주축(PCA)으로 추정해 기울어진 손 대응
 - [ ] MediaPipe Hands(21개 관절 Keypoint)와 같은 테스트셋으로 정확도 · 속도 비교
 - [ ] 직접 수집한 사진으로 경량 분류 모델(CNN) 학습, 규칙 기반을 Baseline으로 비교
 - [ ] GitHub Actions로 push마다 pytest + Batch Test 자동 실행
+
+</details>
 
 ---
 

@@ -81,7 +81,10 @@ Rings are drawn around the palm center, and **each run where the hand crosses a 
 | **Real smartphone photos (after)** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
 | Synthetic hands (0–5 × 5) | 30 | 1.00 | | | | | |
 
-**Debugging story (0.48 → 0.92)**
+By reviewing the result images one by one, I found that **a sleeve-cut wrist was being counted as a finger**, and changed the wrist rule from width to direction — raising accuracy from 0.48 to 0.92.
+
+<details>
+<summary><b>Debugging story in detail</b></summary>
 
 1. **Observe:** Segmentation masks were nearly perfect, yet counts were off by one in both directions. I reviewed all 25 result images and grouped the failures.
 2. **Causes:**
@@ -92,15 +95,19 @@ Rings are drawn around the palm center, and **each run where the hand crosses a 
 
 The two remaining errors are a tilted hand whose palm edge looks like a finger and a hand so close that the fingers are cropped. I stopped tuning here to avoid overfitting 25 photos.
 
+</details>
+
 ## Quality Assurance
+
+41 automated tests (pytest) cover the core logic and the server API, and a regression test that reproduces a real bug keeps it from coming back.
+
+<details>
+<summary><b>Test coverage and commands</b></summary>
 
 ```bash
 python -m pytest -q               # 41 passed
 python -m src.finger_batch_test   # accuracy with folder names (1–5) as labels → CSV report
 ```
-
-<details>
-<summary><b>Test coverage</b></summary>
 
 | Area | What is verified |
 |---|---|
@@ -114,6 +121,9 @@ python -m src.finger_batch_test   # accuracy with folder names (1–5) as labels
 
 ## Getting Started
 
+<details>
+<summary><b>Install and run (smartphone IP Webcam)</b></summary>
+
 ```bash
 git clone https://github.com/yonghoonchoi88/finger_counter.git && cd finger_counter
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -124,6 +134,8 @@ uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful
 1. Start the server in the IP Webcam app (phone and PC on the same Wi-Fi).
 2. Open `http://localhost:8000`, enter the stream URL (e.g. `http://192.168.0.25:8080/video`), and click **카메라 연결** (Connect).
 3. Drag an ROI around the whole hand. Pick a target count to switch to OK/NG.
+
+</details>
 
 <details>
 <summary><b>Run without a smartphone · measure accuracy</b></summary>
@@ -193,11 +205,16 @@ finger_counter/
 
 Fingers held together may count as one, a hand lying sideways breaks the downward-wrist rule, and a face or arm larger than the hand inside the ROI can be mistaken for the hand.
 
+<details>
+<summary><b>Next steps</b></summary>
+
 - [ ] Expand the test set with fist (0) photos and other places and lighting (currently one location, 1–5 × 5)
 - [ ] Estimate the wrist direction from the hand's principal axis (PCA) instead of assuming "down"
 - [ ] Benchmark against MediaPipe Hands (21 keypoints) on the same test set — accuracy and latency
 - [ ] Train a lightweight CNN on collected photos with this rule-based model as the baseline
 - [ ] Run pytest and the batch test on every push with GitHub Actions
+
+</details>
 
 ---
 
