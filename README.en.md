@@ -1,17 +1,14 @@
 <div align="center">
 
-# Finger Counter
+# Finger Counter <sub><sup>[한국어](README.md) · **English**</sup></sub>
 
-A real-time vision inspector that counts raised fingers (0–5) in a smartphone camera stream<br>
-Classical OpenCV only — no training data, runs on a CPU
+A real-time vision inspector that counts raised fingers (0–5) in a smartphone camera stream
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Tests](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#tests)
 [![Accuracy](https://img.shields.io/badge/accuracy-0.92-1957BF)](#results)
-
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Results](#results) · [한국어](README.md)
 
 <img src="images/demo.gif" alt="Web dashboard counting fingers in real time and judging OK/NG against a target count" width="860">
 
@@ -20,6 +17,11 @@ Classical OpenCV only — no training data, runs on a CPU
 </div>
 
 ## Overview
+
+A rule-based vision inspector that applies production-line part counting to an object whose shape changes every frame — a hand.
+
+<details>
+<summary>Details</summary>
 
 Production-line inspection often asks one question: *are there as many as there should be?* This project applies that question to a hand, an object whose shape changes every frame. Like a part-count or missing-part check, it counts, compares against a target, and returns OK or NG. Unlike a fixed part, position, scale, angle and lighting all vary.
 
@@ -31,7 +33,14 @@ I chose a rule-based pipeline over a learned model for three reasons:
 
 It also serves as the baseline for any learned model introduced later.
 
+</details>
+
 ## Features
+
+Live MJPEG input, 0–5 counting with OK/NG, debouncing, decision overlay, offline evaluation, camera simulator.
+
+<details>
+<summary>Details</summary>
 
 - Live MJPEG input from the Android IP Webcam app, with an ROI drawn in the browser
 - Finger count 0–5, plus OK / NG when a target count is set
@@ -40,14 +49,18 @@ It also serves as the baseline for any learned model introduced later.
 - Offline evaluation on labeled folders: accuracy, confusion matrix, per-image CSV
 - An IP Webcam simulator that replays the full pipeline without a phone
 
+</details>
+
 ## How it works
 
 <img src="images/pipeline_en.jpg" alt="Six steps — input, Cr channel, binary mask, palm, ring sampling, result — and results on real photos" width="100%">
 
-After segmenting skin, a distance transform gives the palm center and radius *r*. Rings are drawn around the palm, and **each place where the hand crosses a ring counts as one finger**. Every threshold is relative to *r*, so the same rules hold whether the hand is near or far.
+Rings are drawn around the palm, and **each place where the hand crosses a ring counts as one finger**.
 
 <details>
-<summary><b>Steps and design rationale</b></summary>
+<summary>Design rationale</summary>
+
+After segmenting skin, a distance transform gives the palm center and radius *r*. Every threshold is relative to *r*, so the same rules hold whether the hand is near or far.
 
 | Step | Operation | Rationale |
 |---|---|---|
@@ -66,9 +79,16 @@ Convexity defects (valleys between fingers + 1) are computed and shown on the da
 
 <img src="images/architecture_en.png" alt="Data flow from the smartphone IP Webcam through FastAPI and OpenCV to the web dashboard" width="100%">
 
+One camera thread captures and inspects frames; the browser fetches video and state separately.
+
+<details>
+<summary>Design notes</summary>
+
 - A single background thread owns the camera. However many browser tabs are open, there is one camera connection.
 - Video (`/stream.mjpg`) and state (`/api/status`, every 0.4 s) are separate, so decisions keep updating even if the video stalls.
 - If the ROI or segmentation mode changes mid-frame, that frame's result is dropped so results from the old settings never mix with the new ones.
+
+</details>
 
 ## Results
 
@@ -78,12 +98,10 @@ Convexity defects (valleys between fingers + 1) are computed and shown on the da
 | **Real smartphone photos, after** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
 | Synthetic hands (0–5 × 5) | 30 | 1.00 | | | | | |
 
-Going through the misclassified photos showed that skin segmentation was nearly perfect; the wrist rule was the problem. A black sleeve cut the wrist diagonally and left a finger-sized strip that passed the "wide run = wrist" rule. Telling the wrist apart by **direction** instead of width raised accuracy from 0.48 to 0.92.
-
-These are 25 photos of one person's hand in one place, so they do not measure generalization. Widening the test set across lighting, backgrounds and people is the next validation step.
-
 <details>
-<summary><b>Failure analysis</b></summary>
+<summary>Failure analysis and scope</summary>
+
+Going through the misclassified photos showed that skin segmentation was nearly perfect; the wrist rule was the problem. A black sleeve cut the wrist diagonally and left a finger-sized strip that passed the "wide run = wrist" rule. Telling the wrist apart by **direction** instead of width raised accuracy from 0.48 to 0.92.
 
 1. **Symptom**: Masks looked correct, yet counts were one too many (1→2, 2→3, 4→5) or too few (5→3).
 2. **Cause A**: The sleeve cut the wrist diagonally, leaving a narrow strip below the palm. The old rule filtered the wrist mainly by width (> 0.95r), so the strip was counted as a finger.
@@ -92,6 +110,8 @@ These are 25 photos of one person's hand in one place, so they do not measure ge
 5. **Regression guard**: Reproduced the case with a synthetic image as a test and confirmed it fails on the old code.
 
 Of the two remaining errors, one is a tilted hand whose palm edge looks like a finger, and the other is a hand so close that the fingers leave the frame. Tuning thresholds further on these 25 photos would risk overfitting, so I stopped here.
+
+These are 25 photos of one person's hand in one place, so they do not measure generalization. Widening the test set across lighting, backgrounds and people is the next validation step.
 
 </details>
 
@@ -103,10 +123,10 @@ pip install -r requirements.txt
 uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 2
 ```
 
-Open `http://localhost:8000`, connect the IP Webcam stream (e.g. `http://192.168.0.25:8080/video`), and drag an inspection region around the hand.
-
 <details>
-<summary><b>Run without a phone · offline evaluation</b></summary>
+<summary>Usage · run without a phone · offline evaluation</summary>
+
+Open `http://localhost:8000`, connect the IP Webcam stream (e.g. `http://192.168.0.25:8080/video`), and drag an inspection region around the hand.
 
 ```bash
 python -m src.make_demo_hands                    # generate 30 synthetic hands
@@ -123,10 +143,12 @@ Results go to `reports/finger_batch_results.csv` and `outputs/finger_batch/`, an
 
 ## Tests
 
-`python -m pytest -q` runs 41 tests. Frame processing lives in `process_frame()`, separate from the camera thread, so even server behavior is verified with single images.
+`python -m pytest -q` — 41 tests covering the pipeline, a regression case and the server API.
 
 <details>
-<summary><b>Coverage</b></summary>
+<summary>Coverage</summary>
+
+Frame processing lives in `process_frame()`, separate from the camera thread, so even server behavior is verified with single images.
 
 | Area | What is covered |
 |---|---|
@@ -139,10 +161,12 @@ Results go to `reports/finger_batch_results.csv` and `outputs/finger_batch/`, an
 
 ## Limitations and roadmap
 
-Fingers held together may count as one, and a hand lying sideways breaks the "down = wrist" assumption. A face or arm larger than the hand inside the ROI can be mistaken for the hand.
+Fingers held together, a hand lying sideways, or other skin inside the ROI can cause miscounts.
 
 <details>
-<summary><b>Roadmap</b></summary>
+<summary>Details</summary>
+
+Fingers held together may count as one, and a hand lying sideways breaks the "down = wrist" assumption. A face or arm larger than the hand inside the ROI can be mistaken for the hand.
 
 - [ ] Extend the test set with fists (0) and other places, lighting and people
 - [ ] Estimate wrist direction from the hand's principal axis (PCA) instead of assuming "down"
@@ -155,7 +179,7 @@ Fingers held together may count as one, and a hand lying sideways breaks the "do
 ## Reference
 
 <details>
-<summary><b>Project structure</b></summary>
+<summary>Project structure</summary>
 
 ```
 finger_counter/
@@ -174,7 +198,7 @@ finger_counter/
 </details>
 
 <details>
-<summary><b>REST API</b></summary>
+<summary>REST API</summary>
 
 | Method | Path | Description |
 |---|---|---|
