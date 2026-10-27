@@ -1,16 +1,19 @@
 """폴더에 모아 둔 손 사진으로 손가락 세기 정확도를 측정합니다. (22_cap_batch_test.py 의 손가락 버전)
 
 폴더 구조 (폴더 이름 = 정답 손가락 수)
-samples/fingers/
+samples/
 ├── 0/  01.jpg 02.jpg ...
 ├── 1/  ...
 └── 5/  ...
 
 - 병뚜껑과 달리 Reference 이미지가 필요 없습니다. (규칙만으로 개수를 셈)
-- 사진 전체를 ROI 로 사용하므로 손이 화면 대부분을 차지하게 찍으세요.
+- 사진 전체를 ROI 로 사용합니다. 손 전체가 화면 안에 들어오게 찍으세요.
+- 스마트폰 원본 사진(예: 4000×1848)은 너무 커서 느리므로,
+  긴 변이 --max-side(기본 1280px) 이하가 되도록 줄인 뒤 검사합니다.
+  IP Webcam 프레임 크기와 비슷하게 맞추는 효과도 있습니다.
 
 실행 예
-python -m src.finger_batch_test                            # samples/fingers
+python -m src.finger_batch_test                            # samples/0 ~ 5
 python -m src.finger_batch_test --dir samples/fingers_demo # 가상 데모 손
 python -m src.finger_batch_test --mode light_bg            # 밝은 배경 · 어두운 손
 """
@@ -31,8 +34,9 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="손가락 개수 Batch Test")
-    parser.add_argument("--dir", type=Path, default=ROOT / "samples" / "fingers")
+    parser.add_argument("--dir", type=Path, default=ROOT / "samples")
     parser.add_argument("--mode", choices=SEGMENT_MODES, default="skin")
+    parser.add_argument("--max-side", type=int, default=1280, help="긴 변을 이 크기 이하로 줄여서 검사 (0 = 원본)")
     parser.add_argument("--out", type=Path, default=ROOT / "outputs" / "finger_batch")
     parser.add_argument("--report", type=Path, default=ROOT / "reports" / "finger_batch_results.csv")
     return parser.parse_args()
@@ -70,6 +74,11 @@ def main():
         if image is None:
             print("읽기 실패:", path)
             continue
+
+        longest = max(image.shape[:2])
+        if args.max_side and longest > args.max_side:
+            scale = args.max_side / longest
+            image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
         result = count_fingers(image, args.mode)
         predicted = result["fingers"] if result["status"] == "COUNTED" else "NO_HAND"

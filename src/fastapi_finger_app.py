@@ -24,12 +24,14 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.finger_counter import count_fingers, draw_result
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML_FILE = ROOT / "web" / "finger_inspection.html"
+STATIC_DIR = ROOT / "web" / "static"      # style.css, app.js
 
 HISTORY_SIZE = 5      # 최근 몇 프레임을 볼지
 STABLE_COUNT = 3      # 그중 몇 번 같아야 화면 숫자를 바꿀지
@@ -265,6 +267,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="손가락 개수 실시간 검사", lifespan=lifespan)
+
+# web/static 폴더의 CSS·JS 파일을 /static/... 주소로 제공합니다.
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # ⑩ 요청 Body 검증 (Pydantic)

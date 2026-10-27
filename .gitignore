@@ -10,8 +10,9 @@ outputs/
 reports/
 samples/fingers_demo/
 
-# 내 손 사진은 개인 사진이므로 기본으로 올리지 않습니다 (올리려면 아래 줄 삭제)
-samples/fingers/
+# 테스트용 손 사진(samples/0~5)은 공개 저장소에 올라갑니다.
+# 올리지 않으려면 다음 줄의 # 을 지우세요.
+# samples/[0-5]/
 
 # 편집기 · Windows 다운로드 흔적
 .vscode/

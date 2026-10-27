@@ -29,7 +29,12 @@ import numpy as np
 # - MIN_HAND_AREA_RATIO   : ROI 면적의 3% 이상인 Contour 만 손으로 봅니다.
 # - CIRCLE_SCALES         : 손바닥 반지름 × 이 배수 크기의 원들을 그려 손가락을 셉니다.
 # - MIN/MAX_FINGER_WIDTH  : 원 위에서 손가락 하나로 인정할 폭 (손바닥 반지름 대비)
-#                           너무 좁으면 노이즈, 너무 넓으면 손목으로 봅니다.
+#                           너무 좁으면 노이즈, 너무 넓으면 손가락이 아닌 덩어리로 봅니다.
+#                           소매가 손바닥 아래쪽을 가리면 손바닥 반지름이 작게 측정되어
+#                           실제 손가락 폭이 1.0~1.6배까지 나오므로 넉넉하게 2.0 으로 둡니다.
+# - WRIST_CONE            : 손바닥 중심에서 이 각도 범위(아래쪽 ±45°)를 향한 구간은
+#                           폭과 상관없이 손목·팔 쪽으로 보고 제외합니다.
+#                           (이미지 좌표는 y가 아래로 커지므로 90° = 바로 아래)
 # - DEFECT_MAX_ANGLE      : 손가락 사이 골짜기의 최대 각도(도)
 # - DEFECT_MIN_DEPTH      : 골짜기 최소 깊이 (손바닥 반지름 대비)
 # ============================================================
@@ -41,7 +46,8 @@ MIN_HAND_AREA_RATIO = 0.03
 CIRCLE_SCALES = (1.5, 1.75, 2.0, 2.3)
 CIRCLE_SAMPLES = 360
 MIN_FINGER_WIDTH = 0.12
-MAX_FINGER_WIDTH = 0.95
+MAX_FINGER_WIDTH = 2.0
+WRIST_CONE = (45.0, 135.0)
 
 DEFECT_MAX_ANGLE = 90.0
 DEFECT_MIN_DEPTH = 0.45
@@ -127,8 +133,10 @@ def palm_circle(hand_mask: np.ndarray) -> tuple[tuple[int, int], float]:
 # - 손바닥 중심에 반지름 R = 손바닥 반지름 × scale 인 원을 그립니다.
 # - 원 위의 점 360개가 손(흰색) 위에 있는지 확인합니다.
 # - 연속으로 손 위에 있는 구간 하나 = 원을 가로지르는 손가락 하나
-# - 구간 폭이 너무 좁으면 노이즈, 너무 넓으면(손바닥 반지름의 0.95배 초과) 손목으로 보고 제외합니다.
-# - 아래쪽(60°~120°, 이미지 좌표는 y가 아래로 커짐)을 향한 넓은 구간도 손목으로 봅니다.
+# - 구간 폭이 너무 좁으면 노이즈, 너무 넓으면(손바닥 반지름의 2배 초과) 덩어리로 보고 제외합니다.
+# - 아래쪽(45°~135°)을 향한 구간은 손목·팔(소매에 잘린 손등 포함)로 보고 제외합니다.
+#   실제 사진 테스트에서 소매에 비스듬히 잘린 손목 부분이 좁은 띠처럼 보여
+#   손가락으로 잘못 세어지는 문제가 있었습니다. (폭이 아니라 '방향'으로 구분)
 # ============================================================
 
 def count_by_circle(hand_mask: np.ndarray, center: tuple[int, int],
@@ -163,9 +171,8 @@ def count_by_circle(hand_mask: np.ndarray, center: tuple[int, int],
         width_ratio = length * arc_per_sample / palm_radius
         mid = (start + length / 2 + shift) % CIRCLE_SAMPLES
         mid_deg = mid * 360 / CIRCLE_SAMPLES
-        points_down = 60 <= mid_deg <= 120
-        is_wrist = width_ratio > MAX_FINGER_WIDTH or (points_down and width_ratio > 0.6)
-        if MIN_FINGER_WIDTH <= width_ratio and not is_wrist:
+        is_wrist = WRIST_CONE[0] <= mid_deg <= WRIST_CONE[1]
+        if MIN_FINGER_WIDTH <= width_ratio <= MAX_FINGER_WIDTH and not is_wrist:
             a = mid * 2 * math.pi / CIRCLE_SAMPLES
             fingers.append({
                 "x": int(round(center[0] + radius * math.cos(a))),

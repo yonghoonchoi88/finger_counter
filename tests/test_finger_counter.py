@@ -41,6 +41,14 @@ def test_light_bg_mode_matches_cap_style_binary():
     assert count_fingers(image, "light_bg")["fingers"] == 3
 
 
+def test_downward_strip_is_not_a_finger():
+    # 소매에 비스듬히 잘린 손목처럼, 손바닥에서 아래쪽(왼쪽 아래 125°)으로 뻗은 띠는 세지 않습니다.
+    mask = draw_hand(POSES[2], 320, 260, 60, 0)
+    cv2.line(mask, (320, 260), (320 - 90, 260 + 128), 255, 30)
+    image = render(mask, 1.0, seed=7)
+    assert count_fingers(image)["fingers"] == 2
+
+
 def test_roi_crop_still_counts():
     frame = demo_hand(4)
     roi = frame[120:480, 180:460]
@@ -72,8 +80,14 @@ def feed(frames: int, image: np.ndarray) -> None:
         appmod.state.last_frame_time = __import__("time").monotonic()
 
 
+def test_page_and_static_files(client):
+    page = client.get("/")
+    assert page.status_code == 200 and "/static/app.js" in page.text
+    assert client.get("/static/style.css").status_code == 200
+    assert "refreshStatus" in client.get("/static/app.js").text
+
+
 def test_status_flow_with_target(client):
-    assert client.get("/").status_code == 200
     assert client.post("/api/roi", json={"x1": 0.2, "y1": 0.1, "x2": 0.8, "y2": 1.0}).status_code == 200
 
     feed(5, demo_hand(3))

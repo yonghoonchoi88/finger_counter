@@ -24,7 +24,9 @@
 2. **손 Contour** – 가장 큰 덩어리를 손으로 보고 그 영역만 채운 마스크를 만듭니다.
 3. **손바닥 중심** – Distance Transform 의 최댓값 위치 = 손에서 가장 두꺼운 곳 = 손바닥 중심, 그 값 = 손바닥 반지름 `r`.
 4. **원 샘플링 (판정)** – 중심에 반지름 1.5r / 1.75r / 2.0r / 2.3r 원을 그리고, 원 위 360개 점 중 손 위에 있는 **연속 구간**을 셉니다.
-   - 너무 좁은 구간은 노이즈, 너무 넓거나 아래를 향한 넓은 구간은 **손목**으로 제외
+   - 너무 좁은 구간은 노이즈로 제외
+   - 손바닥 중심에서 **아래쪽(45°~135°)을 향한 구간은 손목·팔**로 제외합니다. 소매에 비스듬히 잘린 손목이
+     좁은 띠처럼 보여 손가락으로 세어지던 문제를 '폭'이 아니라 '방향'으로 구분해 해결했습니다.
    - 주먹의 접힌 마디가 작은 원에 걸리는 것을 막기 위해, **안쪽 원과 바로 바깥 원 모두에 같은 방향으로 걸린 구간**(= 길게 뻗은 손가락)만 셉니다.
 5. **Convexity Defects (참고값)** – 손을 감싸는 Convex Hull 과 Contour 사이의 골짜기 중 각도 90° 이하·깊이 충분한 것을 세어 `골짜기 수 + 1` 을 함께 보여 줍니다.
    골짜기가 0개면 0개인지 1개인지 구분할 수 없어(`0~1`) 판정에는 원 샘플링을 사용합니다. 두 값을 비교해 보는 것도 공부가 됩니다.
@@ -39,7 +41,9 @@ finger_counter/
 │   ├── finger_batch_test.py   # 폴더 이미지 정확도 측정 (22_cap_batch_test.py 역할)
 │   ├── make_demo_hands.py     # 가상 손 이미지 생성 (실제 사진 없을 때)
 │   └── fake_ipwebcam.py       # 스마트폰 없이 웹 화면 확인용 가짜 카메라
-├── web/finger_inspection.html # 웹 화면
+├── web/
+│   ├── finger_inspection.html # 웹 화면 구조
+│   └── static/                # style.css (디자인), app.js (동작)
 ├── tests/test_finger_counter.py
 ├── requirements.txt
 └── pytest.ini
@@ -84,12 +88,15 @@ uvicorn src.fastapi_finger_app:app     # 터미널 2
 
 ```bash
 python -m src.finger_batch_test --dir samples/fingers_demo   # 가상 손
-python -m src.finger_batch_test                              # 내 사진: samples/fingers/0 ~ 5/*.jpg
+python -m src.finger_batch_test                              # 내 사진: samples/0 ~ 5/*.jpg
 ```
 
-- 폴더 이름이 정답 손가락 수입니다. 사진 전체를 ROI 로 쓰므로 손이 화면 대부분을 차지하게 찍으세요.
+- 폴더 이름이 정답 손가락 수입니다. 사진 전체를 ROI 로 쓰므로 **손 전체가 화면 안에** 들어오게 찍으세요.
+- 스마트폰 원본 사진은 긴 변 1280px 이하로 줄여서 검사합니다 (`--max-side`, 0 이면 원본).
 - 결과: `reports/finger_batch_results.csv`, `outputs/finger_batch/*_result.jpg`
-- 가상 손 30장 기준 Accuracy 1.0 (실제 손 사진에서는 배경·조명에 따라 달라집니다)
+- 가상 손 30장: Accuracy 1.0
+- 실제 손 사진 25장 (1~5개 × 5장): **0.48 → 0.92** (손목 방향 규칙 추가 후)
+  - 남은 오답 2장: 손을 기울여 손바닥 옆면이 넓게 잡힌 사진, 손이 카메라에 너무 가까워 손바닥 중심이 화면 밖에 걸린 사진
 
 ## 자동 테스트
 

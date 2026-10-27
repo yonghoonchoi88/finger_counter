@@ -1,0 +1,42 @@
+/* 손가락 개수 검사 웹 화면 스타일 */
+:root { font-family: "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; color:#17243a; }
+* { box-sizing:border-box; }
+body { margin:0; background:#edf2f9; }
+main { max-width:1180px; margin:20px auto; padding:0 18px 32px; }
+header { background:#123574; color:white; padding:22px 26px; border-radius:14px; }
+h1 { margin:0; font-size:clamp(21px,3vw,30px); }
+header p { margin:9px 0 0; color:#dbeaff; }
+.panel { margin-top:15px; background:white; padding:17px; border-radius:12px; box-shadow:0 3px 16px #24436610; }
+.title { display:block; font-weight:750; margin-bottom:8px; }
+.controls { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+input[type=url] { min-width:220px; flex:1; font-size:15px; padding:11px 12px; border:1px solid #bdcde3; border-radius:8px; }
+select { font-size:14px; padding:8px 10px; border:1px solid #bdcde3; border-radius:8px; background:white; }
+button { border:none; cursor:pointer; border-radius:8px; padding:11px 15px; font-size:14px; font-weight:700; background:#1957bf; color:white; }
+button.secondary { background:#55657a; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #f3b95b; outline-offset:2px; }
+.columns { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); gap:15px; align-items:start; }
+.stage { position:relative; background:#263343; border-radius:9px; overflow:hidden; }
+#video { display:block; width:100%; height:auto; min-height:240px; }
+#selection { display:block; position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+.hint { margin:8px 0 0; color:#52627a; font-size:14px; line-height:1.6; }
+.settings { margin-top:11px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; font-size:14px; }
+.status-box { text-align:center; padding:20px 9px; background:#eef3fa; border-radius:10px; border:1px solid #d6e2f2; }
+#decision { font-size:clamp(44px,5vw,72px); font-weight:900; color:#53687f; line-height:1.1; }
+#decision.ok { color:#0e893c; }
+#decision.ng { color:#d72b2b; }
+#decision.check { color:#b27400; }
+#decision.count { color:#1957bf; }
+#meaning { margin-top:7px; font-weight:700; }
+.dots { display:flex; justify-content:center; gap:8px; margin-top:12px; }
+.dots span { width:16px; height:16px; border-radius:50%; background:#d6e2f2; }
+.dots span.on { background:#1957bf; }
+.targets { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-top:12px; }
+.targets button { padding:8px 0; font-size:14px; background:#e3eaf4; color:#17243a; }
+.targets button.active { background:#1957bf; color:white; }
+dl { display:grid; grid-template-columns:1fr auto; row-gap:12px; font-size:14px; margin-bottom:0; }
+dt { color:#58677a; } dd { margin:0; font-weight:800; text-align:right; }
+#notice { margin-top:10px; min-height:24px; color:#aa2430; white-space:pre-wrap; font-size:14px; }
+.note { background:#fff9e7; padding:12px; border-left:4px solid #e7b73f; line-height:1.65; color:#5a4b28; font-size:14px; margin-top:14px; }
+.legend { display:flex; flex-wrap:wrap; gap:12px; font-size:13px; color:#52627a; margin-top:8px; }
+.legend i { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+@media(max-width:760px){ .columns{grid-template-columns:1fr;} main{margin-top:8px} }
