@@ -1,8 +1,4 @@
-"""손가락 세기 로직과 FastAPI 서버 자동 테스트.
-
-실행:  python -m pytest -q
-카메라 없이 가상 손 이미지(src/make_demo_hands.py)로 검사합니다.
-"""
+"""Tests for the counting pipeline and the live server, driven by synthetic hands."""
 
 import cv2
 import numpy as np
@@ -19,7 +15,7 @@ def demo_hand(count: int, shot: int = 0) -> np.ndarray:
     return render(draw_hand(POSES[count], cx, cy, r, tilt), gain, seed=count * 10 + shot)
 
 
-# ---------- 핵심 로직 ----------
+# Pipeline ----------------------------------------------------------------------
 
 @pytest.mark.parametrize("count", range(6))
 @pytest.mark.parametrize("shot", range(len(SHOTS)))
@@ -34,15 +30,16 @@ def test_empty_background_is_no_hand():
     assert count_fingers(background)["status"] == "NO_HAND"
 
 
-def test_light_bg_mode_matches_cap_style_binary():
-    # 흰 배경 위 검은 손 : 병뚜껑과 같은 Gray + Otsu + BINARY_INV 방식
+def test_light_bg_mode_grayscale_otsu():
+    # Dark hand on a white background: grayscale Otsu with BINARY_INV.
     mask = draw_hand(POSES[3], 320, 300, 60, 0)
     image = np.where(mask[..., None] > 0, 40, 230).astype(np.uint8).repeat(3, axis=2)
     assert count_fingers(image, "light_bg")["fingers"] == 3
 
 
 def test_downward_strip_is_not_a_finger():
-    # 소매에 비스듬히 잘린 손목처럼, 손바닥에서 아래쪽(왼쪽 아래 125°)으로 뻗은 띠는 세지 않습니다.
+    # Regression: a sleeve cutting the wrist diagonally leaves a finger-sized strip
+    # pointing down-left (~125 deg). It used to be counted as an extra finger.
     mask = draw_hand(POSES[2], 320, 260, 60, 0)
     cv2.line(mask, (320, 260), (320 - 90, 260 + 128), 255, 30)
     image = render(mask, 1.0, seed=7)
@@ -62,7 +59,7 @@ def test_invalid_input_raises():
         segment_hand(np.zeros((10, 10, 3), np.uint8), mode="unknown")
 
 
-# ---------- 서버 (카메라 없이 process_frame 직접 호출) ----------
+# Server (process_frame driven directly, no camera) ----------------------------
 
 @pytest.fixture()
 def client():
@@ -75,7 +72,7 @@ def client():
 def feed(frames: int, image: np.ndarray) -> None:
     for _ in range(frames):
         appmod.state.process_frame(image)
-    with appmod.state.lock:          # 카메라가 연결된 것처럼 표시
+    with appmod.state.lock:          # pretend a camera is streaming
         appmod.state.camera_status = "ONLINE"
         appmod.state.last_frame_time = __import__("time").monotonic()
 
@@ -106,9 +103,9 @@ def test_status_flow_with_target(client):
 def test_result_is_stabilized(client):
     client.post("/api/roi", json={"x1": 0.2, "y1": 0.1, "x2": 0.8, "y2": 1.0})
     feed(5, demo_hand(2))
-    feed(2, demo_hand(5))            # 2프레임만 바뀌면 아직 그대로
+    feed(2, demo_hand(5))            # 2 of 5 frames changed: keep the old count
     assert client.get("/api/status").json()["fingers"] == 2
-    feed(2, demo_hand(5))            # 최근 5프레임 중 4번 → 바뀜
+    feed(2, demo_hand(5))            # 4 of 5 frames agree: switch
     assert client.get("/api/status").json()["fingers"] == 5
 
 

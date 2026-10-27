@@ -1,10 +1,11 @@
-"""실제 손 사진이 없을 때 쓰는 가상 손 이미지 생성기입니다.
+"""Synthetic hand generator for deterministic tests.
 
-실행:  python -m src.make_demo_hands
-결과:  samples/fingers_demo/<손가락 수>/01.jpg ~ 05.jpg   (0 ~ 5 폴더)
+    python -m src.make_demo_hands   ->  samples/fingers_demo/<count>/01.jpg ... 05.jpg
 
-손바닥·손목·손가락을 피부색 도형으로 그리고, 위치·크기·기울기·조명을 바꿔 촬영한 것처럼 만듭니다.
-접은 손가락은 짧은 마디(혹)로 그려서 실제 주먹처럼 울퉁불퉁하게 만듭니다.
+Each pose (0-5 fingers) is rendered under five shot conditions that vary
+position, scale, tilt and exposure. Folded fingers are drawn as short knuckle
+bumps so a fist is not a clean ellipse; that bump is exactly what the two-ring
+rule in finger_counter.py has to reject.
 """
 
 from pathlib import Path
@@ -16,11 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "samples" / "fingers_demo"
 FRAME_SIZE = (640, 480)
 
-SKIN = (120, 155, 215)          # BGR 피부색
-BACKGROUND = (205, 200, 190)    # BGR 밝은 회색 벽
+SKIN = (120, 155, 215)          # BGR
+BACKGROUND = (205, 200, 190)    # BGR, light gray wall
 
-# 손가락: (palm 기준 시작점 x, y 비율, 각도(도, 위쪽=0), 길이 배율, 두께 배율)
-#          엄지 · 검지 · 중지 · 약지 · 새끼
+# (base x, base y, angle deg with 0 = up, length, thickness), all relative to palm radius
+# thumb, index, middle, ring, pinky
 FINGERS = [
     (-0.85, 0.20, -65, 0.85, 0.22),
     (-0.55, -0.80, -22, 1.10, 0.19),
@@ -29,7 +30,7 @@ FINGERS = [
     (0.65, -0.70, 27, 0.90, 0.17),
 ]
 
-# 손가락 수별로 펴는 손가락 (엄지=0 … 새끼=4) — 사람들이 실제로 많이 쓰는 모양
+# Fingers raised for each count (0 = thumb ... 4 = pinky), using the common gestures
 POSES = {
     0: [],
     1: [1],
@@ -39,7 +40,7 @@ POSES = {
     5: [0, 1, 2, 3, 4],
 }
 
-# 촬영 조건: (중심 x, 중심 y, 손바닥 반지름 px, 기울기(도), 밝기 배율)
+# Shot conditions: (center x, center y, palm radius px, tilt deg, exposure gain)
 SHOTS = [
     (320, 300, 62, 0, 1.00),
     (300, 310, 55, -10, 0.90),
@@ -50,7 +51,7 @@ SHOTS = [
 
 
 def draw_hand(fingers_up: list[int], cx: int, cy: int, r: int, tilt: float) -> np.ndarray:
-    """손 모양 마스크(255=손)를 그립니다."""
+    """Return a binary hand mask (255 = hand)."""
     w, h = FRAME_SIZE
     mask = np.zeros((h, w), np.uint8)
     rad = np.deg2rad(tilt)
@@ -60,7 +61,7 @@ def draw_hand(fingers_up: list[int], cx: int, cy: int, r: int, tilt: float) -> n
         x, y = rot @ np.array([dx, dy]) * r
         return int(round(cx + x)), int(round(cy + y))
 
-    # 손바닥 (세로로 조금 긴 타원) + 손목 (아래 화면 끝까지)
+    # Palm (slightly tall ellipse) and a wrist running off the bottom edge
     cv2.ellipse(mask, (cx, cy), (int(r * 1.05), int(r * 1.15)), tilt, 0, 360, 255, -1, cv2.LINE_AA)
     wrist_top = to_px(0, 0.8)
     wrist_bottom = to_px(0, 4.0)
@@ -73,7 +74,7 @@ def draw_hand(fingers_up: list[int], cx: int, cy: int, r: int, tilt: float) -> n
         start = np.array([sx, sy])
         end = start + ln * np.array([np.sin(a), -np.cos(a)])
         if idx == 0 and not extended:
-            end = start + np.array([0.35, -0.15])        # 접은 엄지는 손바닥 쪽으로
+            end = start + np.array([0.35, -0.15])        # folded thumb tucks toward the palm
         cv2.line(mask, to_px(*start), to_px(*end), 255, max(3, int(r * thick * 2)), cv2.LINE_AA)
     return mask
 
@@ -105,4 +106,4 @@ def generate(output_dir: Path = OUTPUT_DIR) -> list[Path]:
 
 if __name__ == "__main__":
     files = generate()
-    print(f"{len(files)}장 생성:", OUTPUT_DIR)
+    print(f"wrote {len(files)} images to", OUTPUT_DIR)

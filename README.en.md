@@ -2,157 +2,157 @@
 
 # Finger Counter
 
-**A real-time OpenCV web inspector that counts raised fingers (0–5) from a smartphone camera stream**
+A real-time vision inspector that counts raised fingers (0–5) in a smartphone camera stream<br>
+Classical OpenCV only — no training data, runs on a CPU
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-MJPEG%20Streaming-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![pytest](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#quality-assurance)
-[![Accuracy](https://img.shields.io/badge/real%20photos-92%25-1957BF)](#evaluation)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Tests](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#tests)
+[![Accuracy](https://img.shields.io/badge/accuracy-0.92-1957BF)](#results)
 
-[한국어](README.md) · **English**
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Results](#results) · [한국어](README.md)
 
 <img src="images/demo.gif" alt="Web dashboard counting fingers in real time and judging OK/NG against a target count" width="860">
 
-<sub>The dashboard UI is in Korean; the diagrams below are in English.</sub>
+<sub>The dashboard UI is in Korean.</sub>
 
 </div>
 
-## At a Glance
+## Overview
 
-| | |
-|---|---|
-| **What** | Counts the fingers in a live smartphone (IP Webcam) stream and judges **OK / NG** against a target count |
-| **How** | A **rule-based OpenCV pipeline** with no training data — skin segmentation, contours, distance transform, ring sampling |
-| **Results** | **Accuracy 0.48 → 0.92** on 25 real smartphone photos |
-| **Quality** | 41 automated tests, a regression test that reproduces a real bug, and an **IP Webcam simulator** that replays the full pipeline without a phone |
-| **Context** | Extends a class lab — bottle-cap presence check (one feature → OK/NG) — to **counting parts of an object whose shape keeps changing**: the same problem structure as part-count and missing-part inspection on a production line |
+Production-line inspection often asks one question: *are there as many as there should be?* This project applies that question to a hand, an object whose shape changes every frame. Like a part-count or missing-part check, it counts, compares against a target, and returns OK or NG. Unlike a fixed part, position, scale, angle and lighting all vary.
+
+I chose a rule-based pipeline over a learned model for three reasons:
+
+- It can be validated on site immediately, without a labeled dataset.
+- Every decision is drawn on the video (palm circle, counted runs), so a wrong count can be traced to its cause on the spot.
+- It runs in real time on a CPU.
+
+It also serves as the baseline for any learned model introduced later.
+
+## Features
+
+- Live MJPEG input from the Android IP Webcam app, with an ROI drawn in the browser
+- Finger count 0–5, plus OK / NG when a target count is set
+- A count changes only when 3 of the last 5 frames agree, so the display does not flicker while the hand moves
+- Binary mask and decision overlay on the video for on-site diagnosis
+- Offline evaluation on labeled folders: accuracy, confusion matrix, per-image CSV
+- An IP Webcam simulator that replays the full pipeline without a phone
+
+## How it works
+
+<img src="images/pipeline_en.jpg" alt="Six steps — input, Cr channel, binary mask, palm, ring sampling, result — and results on real photos" width="100%">
+
+After segmenting skin, a distance transform gives the palm center and radius *r*. Rings are drawn around the palm, and **each place where the hand crosses a ring counts as one finger**. Every threshold is relative to *r*, so the same rules hold whether the hand is near or far.
 
 <details>
-<summary><b>Compared with the bottle-cap lab</b></summary>
+<summary><b>Steps and design rationale</b></summary>
 
-The project keeps the same real-time architecture (IP Webcam → FastAPI → OpenCV → web) but extends the task to **counting** parts of an object whose shape changes every frame — a hand.
-
-| | Bottle-cap lab | Finger Counter |
+| Step | Operation | Rationale |
 |---|---|---|
-| Segmentation | Gray → Otsu | **Cr channel of YCrCb** → Otsu (skin, robust to lighting) |
-| Feature | One area ratio of the largest contour | Palm center & radius (**distance transform**) + **ring sampling** |
-| Threshold | Midpoint of two reference images | No reference images (rules relative to palm size) |
-| Output | OK / NG | **0–5**, plus OK / NG when a target count is set |
-| Debouncing | None | Result changes only when 3 of the last 5 frames agree |
+| Skin segmentation | YCrCb, Otsu on Cr with a floor of 135 | Cr on skin barely changes with brightness. The floor stops Otsu from splitting an empty background into a phantom hand |
+| Cleanup | Opening → closing, kernel scaled to image size | Same settings from 480p video to full-size photos |
+| Hand | Largest external contour | Drops small skin-colored blobs |
+| Palm | Distance-transform peak = center, its value = radius *r* | Fingers and wrist are thinner than the palm, so the peak lands on the palm |
+| Ring sampling | Contiguous on-hand runs on rings at 1.5r, 1.75r, 2.0r, 2.3r (360 samples each) | One radius is not enough: small rings see fingers merged at the base, large rings miss the thumb and pinky |
+| Filtering | Keep runs that hit two neighboring rings in the same direction (±15°); runs pointing down 45°–135° are the wrist | Folded knuckles only reach the inner ring; a sleeve-cut wrist is told apart by direction, not width |
+
+Convexity defects (valleys between fingers + 1) are computed and shown on the dashboard as well. A fist and a single finger both have zero valleys, so they are not used for the final count.
 
 </details>
 
 ## Architecture
 
-<img src="images/architecture_en.png" alt="Data flow from the smartphone IP Webcam through FastAPI and OpenCV to the HTML dashboard" width="100%">
+<img src="images/architecture_en.png" alt="Data flow from the smartphone IP Webcam through FastAPI and OpenCV to the web dashboard" width="100%">
 
-- **A single camera thread** reads and inspects frames, so any number of browser tabs share one camera connection.
-- Video (`/stream.mjpg`) and state (`/api/status`, every 0.4 s) are fetched separately, so the status panel survives a stalled stream.
-- When a setting changes, the in-flight frame's result is discarded so **results from old settings never leak through**.
+- A single background thread owns the camera. However many browser tabs are open, there is one camera connection.
+- Video (`/stream.mjpg`) and state (`/api/status`, every 0.4 s) are separate, so decisions keep updating even if the video stalls.
+- If the ROI or segmentation mode changes mid-frame, that frame's result is dropped so results from the old settings never mix with the new ones.
 
-## Algorithm
-
-<img src="images/pipeline_en.jpg" alt="Six steps — input, Cr channel, binary mask, palm, ring sampling, result — and results on real photos" width="100%">
-
-Rings are drawn around the palm center, and **each run where the hand crosses a ring is one finger**. Every rule is relative to the palm radius *r*, so the same logic works whether the hand is near or far.
-
-<details>
-<summary><b>Step-by-step details and design rationale</b></summary>
-
-| Step | Operation | Why |
-|---|---|---|
-| ①&nbsp;Segment | BGR → YCrCb, **Otsu on Cr** (floor of 135) | Skin has high Cr regardless of brightness. The floor stops Otsu from splitting the background when no hand is present |
-| ②&nbsp;Clean | Opening → closing, kernel scaled to image size | Same behavior at any resolution |
-| ③&nbsp;Hand | Largest external contour = hand | Drops small skin-colored noise |
-| ④&nbsp;Palm | **Distance-transform peak** = palm center, its value = radius *r* | Fingers and wrist are thinner than the palm, so the peak lands on the palm |
-| ⑤&nbsp;Rings | Find **contiguous on-hand runs** along rings at 1.5r, 1.75r, 2.0r, 2.3r (360 samples each) | Each run = one finger crossing the ring |
-| ⑥&nbsp;Filter | Keep runs hit by **two neighboring rings in the same direction (±15°)**; ignore runs pointing **down 45°–135° (wrist)** | Rejects folded knuckles (too short) and a sleeve-cut wrist (wrong direction) |
-
-**Convexity defects** (valleys between fingers + 1) are computed as a second opinion and shown on the dashboard. With zero valleys they cannot tell 0 from 1, so the final count comes from ring sampling.
-
-</details>
-
-## Evaluation
+## Results
 
 | Dataset | Images | Accuracy | 1 | 2 | 3 | 4 | 5 |
-|---|---|---|---|---|---|---|---|
-| Real smartphone photos (before) | 25 | 0.48 | 3/5 | 3/5 | 2/5 | 2/5 | 2/5 |
-| **Real smartphone photos (after)** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Real smartphone photos, before | 25 | 0.48 | 3/5 | 3/5 | 2/5 | 2/5 | 2/5 |
+| **Real smartphone photos, after** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
 | Synthetic hands (0–5 × 5) | 30 | 1.00 | | | | | |
 
-By reviewing the result images one by one, I found that **a sleeve-cut wrist was being counted as a finger**, and changed the wrist rule from width to direction — raising accuracy from 0.48 to 0.92.
+Going through the misclassified photos showed that skin segmentation was nearly perfect; the wrist rule was the problem. A black sleeve cut the wrist diagonally and left a finger-sized strip that passed the "wide run = wrist" rule. Telling the wrist apart by **direction** instead of width raised accuracy from 0.48 to 0.92.
+
+These are 25 photos of one person's hand in one place, so they do not measure generalization. Widening the test set across lighting, backgrounds and people is the next validation step.
 
 <details>
-<summary><b>Debugging story in detail</b></summary>
+<summary><b>Failure analysis</b></summary>
 
-1. **Observe:** Segmentation masks were nearly perfect, yet counts were off by one in both directions. I reviewed all 25 result images and grouped the failures.
-2. **Causes:**
-   - A black sleeve cut the wrist diagonally, leaving a **narrow strip** that passed the old "wrist = wide run" rule and was counted as a finger.
-   - The sleeve also hid the lower palm, so the **palm radius was underestimated** and the thumb or pinky was discarded as wrist.
-3. **Fix:** Identify the wrist by **direction, not width** (runs pointing 45°–135° below the palm center) and relax the width cap to 2.0r.
-4. **Prevent regressions:** Added a regression test that reproduces the bug and confirmed it fails on the old code.
+1. **Symptom**: Masks looked correct, yet counts were one too many (1→2, 2→3, 4→5) or too few (5→3).
+2. **Cause A**: The sleeve cut the wrist diagonally, leaving a narrow strip below the palm. The old rule filtered the wrist mainly by width (> 0.95r), so the strip was counted as a finger.
+3. **Cause B**: The sleeve also hid the lower palm, so *r* was underestimated. Real fingers then measured 1.0–1.6r and the thumb or pinky was rejected as wrist.
+4. **Fix**: Treat runs pointing 45°–135° below the palm center as the wrist, and relax the width cap to 2.0r.
+5. **Regression guard**: Reproduced the case with a synthetic image as a test and confirmed it fails on the old code.
 
-The two remaining errors are a tilted hand whose palm edge looks like a finger and a hand so close that the fingers are cropped. I stopped tuning here to avoid overfitting 25 photos.
+Of the two remaining errors, one is a tilted hand whose palm edge looks like a finger, and the other is a hand so close that the fingers leave the frame. Tuning thresholds further on these 25 photos would risk overfitting, so I stopped here.
 
 </details>
 
-## Quality Assurance
-
-41 automated tests (pytest) cover the core logic and the server API, and a regression test that reproduces a real bug keeps it from coming back.
-
-<details>
-<summary><b>Test coverage and commands</b></summary>
-
-```bash
-python -m pytest -q               # 41 passed
-python -m src.finger_batch_test   # accuracy with folder names (1–5) as labels → CSV report
-```
-
-| Area | What is verified |
-|---|---|
-| Core logic | Synthetic hands 0–5 × 5 shot conditions (position, scale, tilt, brightness), no hand, cropped input, light-background mode, invalid input |
-| Regression | A sleeve-cut wrist strip is not counted as a finger (reproduces a real bug) |
-| Server API | Page and static files, target OK/NG flow, 3-of-5 debouncing, input validation (ROI size, target range, private IPs only), result reset on setting change |
-| Camera-free | `process_frame()` is decoupled from the camera thread, so server behavior is tested with single images |
-| Simulator | `ipwebcam_simulator.py` streams an image folder as MJPEG, exactly like the IP Webcam app, so the full pipeline can be replayed with the same input and no phone |
-
-</details>
-
-## Getting Started
-
-<details>
-<summary><b>Install and run (smartphone IP Webcam)</b></summary>
+## Quick start
 
 ```bash
 git clone https://github.com/yonghoonchoi88/finger_counter.git && cd finger_counter
-python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 2
 ```
 
-1. Start the server in the IP Webcam app (phone and PC on the same Wi-Fi).
-2. Open `http://localhost:8000`, enter the stream URL (e.g. `http://192.168.0.25:8080/video`), and click **카메라 연결** (Connect).
-3. Drag an ROI around the whole hand. Pick a target count to switch to OK/NG.
-
-</details>
+Open `http://localhost:8000`, connect the IP Webcam stream (e.g. `http://192.168.0.25:8080/video`), and drag an inspection region around the hand.
 
 <details>
-<summary><b>Run without a smartphone · measure accuracy</b></summary>
+<summary><b>Run without a phone · offline evaluation</b></summary>
 
 ```bash
-python -m src.make_demo_hands                              # generate 30 synthetic hands
-python -m src.ipwebcam_simulator                           # terminal 1 → http://127.0.0.1:8081/video
-uvicorn src.fastapi_finger_app:app --port 8000             # terminal 2
+python -m src.make_demo_hands                    # generate 30 synthetic hands
+python -m src.ipwebcam_simulator                 # terminal 1: http://127.0.0.1:8081/video
+uvicorn src.fastapi_finger_app:app --port 8000   # terminal 2
 
 python -m src.finger_batch_test                            # real photos in samples/1–5
 python -m src.finger_batch_test --dir samples/fingers_demo # synthetic hands
 ```
 
-Outputs: `reports/finger_batch_results.csv`, `outputs/finger_batch/*_result.jpg`
+Results go to `reports/finger_batch_results.csv` and `outputs/finger_batch/`, and a confusion matrix is printed to the terminal.
 
 </details>
 
+## Tests
+
+`python -m pytest -q` runs 41 tests. Frame processing lives in `process_frame()`, separate from the camera thread, so even server behavior is verified with single images.
+
+<details>
+<summary><b>Coverage</b></summary>
+
+| Area | What is covered |
+|---|---|
+| Pipeline | Synthetic hands 0–5 × 5 shot conditions (position, scale, tilt, exposure), no hand, cropped input, light-background mode, invalid input |
+| Regression | A sleeve-cut wrist strip is not counted as a finger (Cause A above) |
+| Server | Page and static files, target OK/NG, 3-of-5 debouncing, input validation (ROI size, target range, private IPs only), reset on setting change |
+| Simulator | `ipwebcam_simulator.py` streams an image folder as the same MJPEG the app produces, so the full path can be replayed with identical input |
+
+</details>
+
+## Limitations and roadmap
+
+Fingers held together may count as one, and a hand lying sideways breaks the "down = wrist" assumption. A face or arm larger than the hand inside the ROI can be mistaken for the hand.
+
+<details>
+<summary><b>Roadmap</b></summary>
+
+- [ ] Extend the test set with fists (0) and other places, lighting and people
+- [ ] Estimate wrist direction from the hand's principal axis (PCA) instead of assuming "down"
+- [ ] Compare accuracy and latency with MediaPipe Hands on the same test set
+- [ ] Train a lightweight classifier on collected photos, using this pipeline as the baseline
+- [ ] Run tests and offline evaluation on every push with GitHub Actions
+
+</details>
+
+## Reference
 
 <details>
 <summary><b>Project structure</b></summary>
@@ -160,17 +160,15 @@ Outputs: `reports/finger_batch_results.csv`, `outputs/finger_batch/*_result.jpg`
 ```
 finger_counter/
 ├── src/
-│   ├── finger_counter.py       # core algorithm (segmentation · contour · distance transform · ring sampling)
-│   ├── fastapi_finger_app.py   # real-time server (camera thread · debouncing · REST API · MJPEG)
-│   ├── finger_batch_test.py    # folder-level accuracy measurement · CSV report
+│   ├── finger_counter.py       # detection pipeline
+│   ├── fastapi_finger_app.py   # live server (camera thread, debouncing, REST API, MJPEG)
+│   ├── finger_batch_test.py    # offline evaluation
 │   ├── make_demo_hands.py      # synthetic hand generator
-│   └── ipwebcam_simulator.py   # IP Webcam simulator (image folder → MJPEG)
-├── web/
-│   ├── finger_inspection.html  # dashboard (video · result · settings · how it works)
-│   └── static/                 # app.js · style.css
-├── tests/test_finger_counter.py
-├── samples/1~5/                # real hand photos (label = folder name)
-└── images/                     # demo GIF · architecture · pipeline (Korean / English)
+│   └── ipwebcam_simulator.py   # IP Webcam simulator
+├── web/                        # dashboard (HTML, JS, CSS)
+├── tests/
+├── samples/1–5/                # real hand photos, folder name = label
+└── images/                     # figures for the README and dashboard
 ```
 
 </details>
@@ -181,35 +179,17 @@ finger_counter/
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Dashboard |
-| `GET` | `/stream.mjpg` | Live annotated video (MJPEG) |
-| `GET` | `/api/status` | Camera state · finger count · decision · details |
+| `GET` | `/stream.mjpg` | Live annotated video |
+| `GET` | `/api/status` | Camera state, finger count, decision, details |
 | `POST` | `/api/camera` | Connect an IP Webcam URL (private IPs, http(s) only) |
-| `POST` / `DELETE` | `/api/roi` | Set / clear the inspection region (normalized 0–1 coordinates) |
-| `POST` | `/api/target` | Target finger count (0–5, `null` to clear) |
-| `POST` | `/api/settings` | Segmentation mode `skin` · `dark_bg` · `light_bg`, mask preview |
-
-</details>
-
-## Limitations & Next Steps
-
-Fingers held together may count as one, a hand lying sideways breaks the downward-wrist rule, and a face or arm larger than the hand inside the ROI can be mistaken for the hand.
-
-<details>
-<summary><b>Next steps</b></summary>
-
-- [ ] Expand the test set with fist (0) photos and other places and lighting (currently one location, 1–5 × 5)
-- [ ] Estimate the wrist direction from the hand's principal axis (PCA) instead of assuming "down"
-- [ ] Benchmark against MediaPipe Hands (21 keypoints) on the same test set — accuracy and latency
-- [ ] Train a lightweight CNN on collected photos with this rule-based model as the baseline
-- [ ] Run pytest and the batch test on every push with GitHub Actions
+| `POST` `DELETE` | `/api/roi` | Set / clear the inspection region (normalized 0–1) |
+| `POST` | `/api/target` | Target count 0–5, `null` to clear |
+| `POST` | `/api/settings` | Segmentation mode `skin` `dark_bg` `light_bg`, mask preview |
 
 </details>
 
 ---
 
 <div align="center">
-
-**Yonghoon Choi** · [@yonghoonchoi88](https://github.com/yonghoonchoi88)<br>
-5+ years in software QA & test automation, moving into Vision AI · mini project from a Vision AI & industrial vertical-AI training program
-
+<sub>Yonghoon Choi · <a href="https://github.com/yonghoonchoi88">@yonghoonchoi88</a> · QA / Test Automation → Vision AI</sub>
 </div>

@@ -1,61 +1,53 @@
-"""병뚜껑 검사 구조를 재사용해 '펴고 있는 손가락 개수(0~5)'를 세는 핵심 로직입니다.
+"""Count raised fingers (0-5) in a single BGR image with classical OpenCV.
 
-병뚜껑 검사(cap_inspector.py)와 비교
-- 병뚜껑 : Gray → Otsu → Morphology → 가장 큰 Contour → Area Ratio → OK/NG
-- 손가락 : 피부색(YCrCb) → Otsu → Morphology → 가장 큰 Contour(손)
-           → 손바닥 중심(Distance Transform) → 손바닥 둘레 원과 손이 겹치는 구간 수 = 손가락 수
-           (참고값으로 Convexity Defects '손가락 사이 골짜기 수'도 함께 계산)
+Pipeline
+    1. Segment skin on the Cr channel of YCrCb (Otsu, with a floor).
+    2. Keep the largest external contour as the hand.
+    3. Find the palm with a distance transform: the peak is the palm center and
+       its value is the palm radius ``r``. Every later rule is relative to ``r``,
+       so the logic does not depend on how far the hand is from the camera.
+    4. Sample rings at 1.5r-2.3r around the palm. Each contiguous on-hand run on a
+       ring is a finger crossing it. A run must also appear on the next ring in
+       the same direction (rejects folded knuckles), and runs pointing downward
+       are treated as the wrist.
+
+Convexity defects are computed as a second opinion. They cannot tell 0 from 1
+(no valleys in either case), so the final count comes from ring sampling.
 """
-
-
-# ============================================================
-# ① 필요한 라이브러리
-# ============================================================
 
 import math
 
 import cv2
 import numpy as np
 
-
-# ============================================================
-# ② 검사 기준값
-# - SEGMENT_MODES         : 손을 흰색으로 만드는 이진화 방식
-#     skin     : 피부색 (YCrCb 의 Cr 채널 + Otsu)  ← 기본값
-#     dark_bg  : 어두운 배경 위 밝은 손 (Gray + Otsu, THRESH_BINARY)
-#     light_bg : 밝은 배경 위 어두운 손 (Gray + Otsu, THRESH_BINARY_INV, 병뚜껑과 같은 방식)
-# - SKIN_CR_MIN           : 피부의 Cr 최솟값. Otsu 기준값이 이보다 낮으면 이 값을 씁니다.
-#                           (손이 없을 때 Otsu 가 배경을 억지로 둘로 나누는 것 방지)
-# - MIN_HAND_AREA_RATIO   : ROI 면적의 3% 이상인 Contour 만 손으로 봅니다.
-# - CIRCLE_SCALES         : 손바닥 반지름 × 이 배수 크기의 원들을 그려 손가락을 셉니다.
-# - MIN/MAX_FINGER_WIDTH  : 원 위에서 손가락 하나로 인정할 폭 (손바닥 반지름 대비)
-#                           너무 좁으면 노이즈, 너무 넓으면 손가락이 아닌 덩어리로 봅니다.
-#                           소매가 손바닥 아래쪽을 가리면 손바닥 반지름이 작게 측정되어
-#                           실제 손가락 폭이 1.0~1.6배까지 나오므로 넉넉하게 2.0 으로 둡니다.
-# - WRIST_CONE            : 손바닥 중심에서 이 각도 범위(아래쪽 ±45°)를 향한 구간은
-#                           폭과 상관없이 손목·팔 쪽으로 보고 제외합니다.
-#                           (이미지 좌표는 y가 아래로 커지므로 90° = 바로 아래)
-# - DEFECT_MAX_ANGLE      : 손가락 사이 골짜기의 최대 각도(도)
-# - DEFECT_MIN_DEPTH      : 골짜기 최소 깊이 (손바닥 반지름 대비)
-# ============================================================
-
 SEGMENT_MODES = ("skin", "dark_bg", "light_bg")
+
+# Skin pixels sit well above this on the Cr channel. Without a floor, Otsu
+# happily splits an empty background into two classes and invents a "hand".
 SKIN_CR_MIN = 135
 MIN_HAND_AREA_RATIO = 0.03
 
 CIRCLE_SCALES = (1.5, 1.75, 2.0, 2.3)
 CIRCLE_SAMPLES = 360
+MATCH_ANGLE = 15.0          # max direction change of a finger between two rings (deg)
+
+# Run width relative to r. The upper bound is loose on purpose: a sleeve covering
+# the lower palm shrinks r, and real fingers then measure up to ~1.6r.
 MIN_FINGER_WIDTH = 0.12
 MAX_FINGER_WIDTH = 2.0
+
+# Runs centered in this cone (image y grows downward, 90 deg = straight down) are
+# the wrist or forearm. Width alone failed on photos where a sleeve cut the wrist
+# diagonally and left a finger-sized strip; direction is the stable signal.
 WRIST_CONE = (45.0, 135.0)
 
 DEFECT_MAX_ANGLE = 90.0
-DEFECT_MIN_DEPTH = 0.45
+DEFECT_MIN_DEPTH = 0.45     # relative to r
 
 
 def _check_bgr(image: np.ndarray) -> None:
     if image is None or image.size == 0 or image.ndim != 3 or image.shape[2] != 3:
-        raise ValueError("ROI는 비어 있지 않은 BGR 이미지여야 합니다.")
+        raise ValueError("expected a non-empty BGR image")
 
 
 def _odd(value: float, minimum: int = 3) -> int:
@@ -63,19 +55,21 @@ def _odd(value: float, minimum: int = 3) -> int:
     return v if v % 2 else v + 1
 
 
-# ============================================================
-# ③ 손 영역 이진화 (2일차 Binary 응용)
-# - skin : BGR → YCrCb 변환 후 Cr(붉은 기) 채널에 Otsu 를 적용합니다.
-#          피부는 밝기(Y)와 상관없이 Cr 값이 높아서 조명 변화에 강합니다.
-# - Morphology 커널 크기는 ROI 크기에 맞춰 자동으로 정합니다.
-#   Opening : 작은 노이즈 제거 / Closing : 손 안쪽 구멍 메우기
-# - 반환 : (이진 마스크, 사용한 기준값)
-# ============================================================
+def _angle_gap(a: float, b: float) -> float:
+    gap = abs(a - b) % 360
+    return min(gap, 360 - gap)
+
 
 def segment_hand(roi: np.ndarray, mode: str = "skin") -> tuple[np.ndarray, float]:
+    """Return a binary hand mask and the threshold that produced it.
+
+    ``skin`` thresholds the Cr channel, which stays high on skin regardless of
+    brightness. ``dark_bg`` / ``light_bg`` fall back to grayscale Otsu for plain
+    backgrounds where color is unreliable.
+    """
     _check_bgr(roi)
     if mode not in SEGMENT_MODES:
-        raise ValueError(f"mode 는 {SEGMENT_MODES} 중 하나여야 합니다.")
+        raise ValueError(f"mode must be one of {SEGMENT_MODES}")
 
     blurred = cv2.GaussianBlur(roi, (5, 5), 0)
 
@@ -89,6 +83,7 @@ def segment_hand(roi: np.ndarray, mode: str = "skin") -> tuple[np.ndarray, float
         flag = cv2.THRESH_BINARY if mode == "dark_bg" else cv2.THRESH_BINARY_INV
         value, binary = cv2.threshold(gray, 0, 255, flag + cv2.THRESH_OTSU)
 
+    # Kernel scales with the image so the same settings work from 480p to 4K.
     k = _odd(min(roi.shape[:2]) / 100)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
@@ -96,13 +91,8 @@ def segment_hand(roi: np.ndarray, mode: str = "skin") -> tuple[np.ndarray, float
     return cleaned, float(value)
 
 
-# ============================================================
-# ④ 손 Contour 찾기 (3일차 Contour 응용)
-# - 가장 큰 외곽 Contour 를 손으로 봅니다.
-# - 그 Contour 만 채운 마스크를 따로 만들어 작은 잡음 덩어리를 없앱니다.
-# ============================================================
-
 def find_hand(mask: np.ndarray) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Return the largest contour and a filled mask of it, or (None, None)."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return None, None
@@ -114,33 +104,17 @@ def find_hand(mask: np.ndarray) -> tuple[np.ndarray | None, np.ndarray | None]:
     return largest, hand_mask
 
 
-# ============================================================
-# ⑤ 손바닥 중심과 반지름 (Distance Transform)
-# - 손 마스크의 각 흰 픽셀에서 가장 가까운 검은 픽셀까지 거리를 계산합니다.
-# - 거리가 가장 큰 점 = 손에서 가장 '두꺼운' 곳 = 손바닥 중심
-# - 그 거리 = 손바닥에 꼭 맞게 들어가는 원의 반지름
-# - 손가락·손목은 손바닥보다 가늘어서 중심이 손바닥에 잡힙니다.
-# ============================================================
-
 def palm_circle(hand_mask: np.ndarray) -> tuple[tuple[int, int], float]:
+    """Largest inscribed circle of the hand. Fingers and wrist are thinner than
+    the palm, so the distance-transform peak lands on the palm."""
     dist = cv2.distanceTransform(hand_mask, cv2.DIST_L2, 5)
     _, radius, _, center = cv2.minMaxLoc(dist)
     return (int(center[0]), int(center[1])), float(radius)
 
 
-# ============================================================
-# ⑥ 원 샘플링으로 손가락 세기 (주 판정 방법)
-# - 손바닥 중심에 반지름 R = 손바닥 반지름 × scale 인 원을 그립니다.
-# - 원 위의 점 360개가 손(흰색) 위에 있는지 확인합니다.
-# - 연속으로 손 위에 있는 구간 하나 = 원을 가로지르는 손가락 하나
-# - 구간 폭이 너무 좁으면 노이즈, 너무 넓으면(손바닥 반지름의 2배 초과) 덩어리로 보고 제외합니다.
-# - 아래쪽(45°~135°)을 향한 구간은 손목·팔(소매에 잘린 손등 포함)로 보고 제외합니다.
-#   실제 사진 테스트에서 소매에 비스듬히 잘린 손목 부분이 좁은 띠처럼 보여
-#   손가락으로 잘못 세어지는 문제가 있었습니다. (폭이 아니라 '방향'으로 구분)
-# ============================================================
-
 def count_by_circle(hand_mask: np.ndarray, center: tuple[int, int],
                     palm_radius: float, scale: float) -> tuple[int, list[dict], float]:
+    """Find finger-like runs on one ring of radius ``palm_radius * scale``."""
     h, w = hand_mask.shape
     radius = palm_radius * scale
     angles = np.arange(CIRCLE_SAMPLES) * (2 * math.pi / CIRCLE_SAMPLES)
@@ -153,7 +127,8 @@ def count_by_circle(hand_mask: np.ndarray, center: tuple[int, int],
     if on_hand.all() or not on_hand.any():
         return 0, [], radius
 
-    # 원은 처음과 끝이 이어져 있으므로, 손 밖인 점에서 시작하도록 회전합니다.
+    # The ring wraps around; start scanning from an off-hand sample so a run
+    # crossing angle 0 is not split in two.
     shift = int(np.argmin(on_hand))
     rolled = np.roll(on_hand, -shift)
 
@@ -183,27 +158,15 @@ def count_by_circle(hand_mask: np.ndarray, center: tuple[int, int],
     return min(len(fingers), 5), fingers, radius
 
 
-# ============================================================
-# ⑥-2 원 크기를 바꿔 가며 세고, '길게 뻗은' 손가락만 인정
-# - 원이 너무 작으면 손가락 뿌리에서 붙어 있어 1개로 합쳐지고,
-#   원이 너무 크면 짧은 손가락(새끼·엄지)이 원에 닿지 않습니다.
-#   그래서 1.5 / 1.75 / 2.0 / 2.3배 원을 모두 확인합니다.
-# - 주먹을 쥐면 접힌 손가락 마디가 작은 원에 살짝 걸립니다.
-#   펴진 손가락은 길어서 바로 바깥 원에도 같은 방향(±15°)으로 걸리므로,
-#   '안쪽 원과 바로 바깥 원에 모두 걸린 구간'만 손가락으로 셉니다.
-# - 원 쌍마다 센 개수 중 가장 큰 값을 사용합니다. (같으면 안쪽 원 우선)
-# ============================================================
-
-MATCH_ANGLE = 15.0
-
-
-def _angle_gap(a: float, b: float) -> float:
-    gap = abs(a - b) % 360
-    return min(gap, 360 - gap)
-
-
 def count_by_circles(hand_mask: np.ndarray, center: tuple[int, int],
                      palm_radius: float) -> tuple[int, list[dict], float]:
+    """Count fingers that cross two neighboring rings in the same direction.
+
+    A single radius does not work for every hand: small rings see fingers
+    merged at the base, large rings miss the thumb and pinky. Requiring a run on
+    both ring i and ring i+1 also filters folded knuckles, which reach the inner
+    ring but not the next one. The best ring pair wins (ties go to the inner one).
+    """
     rings = [count_by_circle(hand_mask, center, palm_radius, s) for s in CIRCLE_SCALES]
     best = (0, [], rings[0][2])
     for inner, outer in zip(rings, rings[1:]):
@@ -214,16 +177,10 @@ def count_by_circles(hand_mask: np.ndarray, center: tuple[int, int],
     return best
 
 
-# ============================================================
-# ⑦ Convexity Defects 로 손가락 사이 골짜기 세기 (참고값)
-# - Convex Hull(손을 감싸는 고무줄)과 손 Contour 사이의 움푹한 곳 = Defect
-# - 각도가 90° 보다 좁고, 깊이가 충분한 골짜기만 손가락 사이로 인정합니다.
-# - 손목 근처(손바닥 중심보다 아래) 골짜기는 제외합니다.
-# - 골짜기 N개 → 손가락 N+1개. 골짜기가 0개면 0개인지 1개인지 구분할 수 없어 None.
-# ============================================================
-
 def count_by_defects(contour: np.ndarray, center: tuple[int, int],
                      palm_radius: float) -> tuple[int | None, list[tuple[int, int]]]:
+    """Second opinion: valleys between fingers + 1. Returns None for 0 valleys,
+    because a fist and a single finger both have none."""
     hull = cv2.convexHull(contour, returnPoints=False)
     if hull is None or len(hull) < 4:
         return None, []
@@ -235,7 +192,7 @@ def count_by_defects(contour: np.ndarray, center: tuple[int, int],
         return None, []
 
     valleys = []
-    for s, e, f, depth in defects.reshape(-1, 4):
+    for s, e, f, depth in defects.reshape(-1, 4):   # (N,1,4) on OpenCV 4, (N,4) on 5
         start, end, far = contour[s][0], contour[e][0], contour[f][0]
         a = np.linalg.norm(end - start)
         b = np.linalg.norm(far - start)
@@ -244,23 +201,21 @@ def count_by_defects(contour: np.ndarray, center: tuple[int, int],
             continue
         cos_angle = np.clip((b ** 2 + c ** 2 - a ** 2) / (2 * b * c), -1, 1)
         angle = math.degrees(math.acos(cos_angle))
+        near_wrist = far[1] > center[1] + palm_radius * 0.5
         if angle <= DEFECT_MAX_ANGLE and depth / 256.0 >= DEFECT_MIN_DEPTH * palm_radius \
-                and far[1] <= center[1] + palm_radius * 0.5:
+                and not near_wrist:
             valleys.append((int(far[0]), int(far[1])))
 
     count = min(len(valleys) + 1, 5) if valleys else None
     return count, valleys
 
 
-# ============================================================
-# ⑧ ROI 한 장을 검사하는 최종 함수
-# - status
-#   NO_HAND : ROI 안에서 손을 찾지 못함
-#   COUNTED : 손가락 개수 계산 완료
-# - fingers : 원 샘플링 결과(주 판정), defect_fingers : 참고값
-# ============================================================
-
 def count_fingers(roi: np.ndarray, mode: str = "skin") -> dict:
+    """Run the full pipeline on one image.
+
+    ``status`` is ``COUNTED`` or ``NO_HAND``. ``fingers`` is the ring-sampling
+    count used for decisions; ``defect_fingers`` is shown for comparison only.
+    """
     mask, threshold = segment_hand(roi, mode)
     contour, hand_mask = find_hand(mask)
     result = {
@@ -289,14 +244,9 @@ def count_fingers(roi: np.ndarray, mode: str = "skin") -> dict:
     return result
 
 
-# ============================================================
-# ⑨ 결과 그리기 (실시간 화면 · Batch 결과 이미지 공용)
-# - 초록 : 손 Contour / 파랑 : 손바닥 원 / 노랑 : 손가락 세는 원
-# - 빨간 점 : 센 손가락 / 보라 점 : 손가락 사이 골짜기
-# - offset : ROI 를 원본 프레임에 그릴 때 ROI 왼쪽 위 좌표
-# ============================================================
-
 def draw_result(image: np.ndarray, result: dict, offset: tuple[int, int] = (0, 0)) -> None:
+    """Overlay contour (green), palm (blue), counting ring (yellow), fingers (red)
+    and valleys (purple). ``offset`` is the ROI origin inside ``image``."""
     if result["status"] != "COUNTED":
         return
     ox, oy = offset

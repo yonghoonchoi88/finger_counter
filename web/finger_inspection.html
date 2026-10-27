@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>손가락 개수 검사</title>
+  <title>Finger Counter</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main>
   <header>
-    <h1>IP Webcam 실시간 손가락 개수 검사</h1>
-    <p>ROI + 피부색 이진화(YCrCb·Otsu) + Contour + Distance Transform + 원 샘플링 · Convexity Defects + FastAPI</p>
+    <h1>Finger Counter</h1>
+    <p>스마트폰 IP Webcam 영상의 손가락 개수를 실시간으로 검사합니다 · OpenCV · FastAPI</p>
   </header>
 
   <section class="panel">
-    <label class="title" for="camera-url">① 스마트폰 IP Webcam 영상 주소를 입력합니다.</label>
+    <label class="title" for="camera-url">① 카메라 연결 <small>IP Webcam 앱의 영상 주소</small></label>
     <div class="controls">
       <input id="camera-url" type="url" placeholder="예: http://192.168.0.25:8080/video" autocomplete="off">
       <button id="connect" type="button">카메라 연결</button>
@@ -24,7 +24,7 @@
 
   <div class="columns">
     <section class="panel">
-      <span class="title">② 손 전체(손목 일부 포함)가 들어가도록 영역을 드래그합니다.</span>
+      <span class="title">② 검사 영역 <small>손 전체와 손목 일부가 들어가도록 드래그</small></span>
       <div class="stage">
         <img id="video" src="/stream.mjpg" alt="스마트폰 카메라 실시간 영상">
         <canvas id="selection" aria-label="ROI 선택 화면"></canvas>
@@ -54,13 +54,13 @@
     </section>
 
     <aside class="panel">
-      <span class="title">③ 실시간 검사 결과</span>
+      <span class="title">③ 검사 결과</span>
       <div class="status-box" aria-live="polite">
         <div id="decision">대기</div>
         <div id="meaning">카메라와 ROI를 준비하세요.</div>
         <div class="dots" id="dots" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
       </div>
-      <span class="title" style="margin-top:14px;">목표 손가락 수 (지정하면 OK/NG 판정)</span>
+      <span class="title" style="margin-top:14px;">목표 개수 <small>지정하면 OK / NG 판정</small></span>
       <div class="targets" id="targets" role="group" aria-label="목표 손가락 수"></div>
       <dl>
         <dt>카메라 상태</dt><dd id="camera-state">NOT_CONNECTED</dd>
@@ -70,7 +70,7 @@
         <dt>손 면적 비율</dt><dd id="area">-</dd>
         <dt>손바닥 반지름(px)</dt><dd id="palm">-</dd>
       </dl>
-      <div class="note">학습용 규칙 기반 검사입니다. 손가락을 붙이면 1개로 셀 수 있고, 손이 옆으로 누우면 손목을 손가락으로 오인할 수 있습니다.</div>
+      <div class="note">규칙 기반 판정의 알려진 한계: 손가락을 붙이면 1개로 셀 수 있고, 손이 옆으로 누우면 손목을 손가락으로 볼 수 있습니다.</div>
     </aside>
   </div>
 
@@ -89,7 +89,7 @@
     <a id="how-link" href="/assets/architecture_ko.png" target="_blank" rel="noopener">
       <img id="how-image" src="/assets/architecture_ko.png" alt="데이터 흐름 그림" loading="lazy">
     </a>
-    <p class="hint">스마트폰 영상 → FastAPI → OpenCV 판정 → 결과 안정화 → 이 화면 순서로 데이터가 이동합니다. 그림을 누르면 크게 볼 수 있습니다.</p>
+    <p class="hint">그림을 누르면 원본 크기로 볼 수 있습니다.</p>
   </section>
 </main>
 <script src="/static/app.js"></script>

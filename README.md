@@ -2,154 +2,155 @@
 
 # Finger Counter
 
-**스마트폰 카메라 영상에서 펴고 있는 손가락 개수(0~5)를 실시간으로 세는 OpenCV 웹 검사 시스템**
+스마트폰 카메라 영상에서 펴고 있는 손가락 수(0–5)를 실시간으로 세는 비전 검사 시스템<br>
+학습 데이터 없이 고전 OpenCV 기법만으로 CPU에서 동작합니다
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-MJPEG%20Streaming-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![pytest](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#품질-관리)
-[![Accuracy](https://img.shields.io/badge/real%20photos-92%25-1957BF)](#성능-평가)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Tests](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#테스트)
+[![Accuracy](https://img.shields.io/badge/accuracy-0.92-1957BF)](#성능)
 
-**한국어** · [English](README.en.md)
+[빠른 시작](#빠른-시작) · [동작 원리](#동작-원리) · [성능](#성능) · [English](README.en.md)
 
-<img src="images/demo.gif" alt="웹 대시보드에서 실시간으로 손가락 개수를 세고 목표 개수와 비교해 OK/NG를 판정하는 화면" width="860">
+<img src="images/demo.gif" alt="웹 대시보드에서 실시간으로 손가락 수를 세고 목표 개수와 비교해 OK/NG를 판정하는 화면" width="860">
 
 </div>
 
-## 한눈에 보기
+## 개요
 
-| | |
-|---|---|
-| **무엇을** | 스마트폰(IP Webcam) 영상 속 손가락 개수를 실시간으로 세고, 목표 개수와 비교해 **OK / NG** 판정 |
-| **어떻게** | 학습 데이터 없는 **규칙 기반 OpenCV 파이프라인** — 피부색 이진화 · Contour · Distance Transform · 원 샘플링 |
-| **결과** | 실제 스마트폰 사진 25장 **Accuracy 0.48 → 0.92** |
-| **품질** | 자동 테스트 41개, 실제 버그를 재현한 회귀 테스트, **IP Webcam 시뮬레이터**로 스마트폰 없이 전체 흐름 재현 |
-| **배경** | 수업 실습 「병뚜껑 유무 검사」(특징 1개 → OK/NG)를 **모양이 매번 달라지는 대상의 개수 검사**로 확장. 생산 라인의 부품 수량·누락 검사와 같은 구조의 문제 |
+생산 라인 검사에서 자주 나오는 "기준 개수만큼 있는가" 문제를, 프레임마다 모양이 바뀌는 대상인 손에 적용했습니다. 부품 수량 확인이나 누락 검사처럼 개수를 세어 기준과 비교하고 OK/NG를 냅니다. 대상이 정형화되어 있지 않아 위치·크기·각도·조명이 모두 흔들린다는 점이 일반적인 부품 검사보다 까다롭습니다.
+
+학습 모델 대신 규칙 기반을 선택한 이유는 세 가지입니다.
+
+- 라벨링 데이터 없이 바로 현장 조건에서 검증할 수 있습니다.
+- 판정 근거(손바닥 원, 센 구간)를 영상 위에 그대로 그려 오판 원인을 바로 추적할 수 있습니다.
+- GPU 없이 CPU만으로 실시간 처리됩니다.
+
+이 결과는 이후 학습 모델을 도입할 때 비교할 기준선(baseline) 역할도 합니다.
+
+## 주요 기능
+
+- 스마트폰 IP Webcam의 MJPEG 영상을 실시간으로 받아 브라우저에서 검사 영역(ROI) 지정
+- 손가락 수 0–5 판정, 목표 개수를 지정하면 OK / NG 판정
+- 최근 5프레임 중 3프레임이 일치할 때만 결과를 바꿔 손을 움직이는 동안의 깜빡임 제거
+- 이진화 마스크와 판정 근거를 영상에 겹쳐 표시해 현장에서 바로 원인 확인
+- 라벨 폴더 기반 오프라인 평가: 정확도, 혼동 행렬, 이미지별 CSV
+- 스마트폰 없이 전체 흐름을 재현하는 IP Webcam 시뮬레이터
+
+## 동작 원리
+
+<img src="images/pipeline_ko.jpg" alt="입력, Cr 채널, 이진화 마스크, 손바닥 찾기, 원 샘플링, 결과로 이어지는 6단계와 실제 사진 결과" width="100%">
+
+피부 영역을 분리한 뒤 Distance Transform으로 손바닥 중심과 반지름 r을 구하고, 손바닥 둘레에 원을 그려 **손이 원을 가로지르는 구간의 수**를 손가락 수로 셉니다. 모든 기준을 r에 대한 비율로 정했기 때문에 손이 카메라에서 멀든 가깝든 같은 규칙이 적용됩니다.
 
 <details>
-<summary><b>수업 실습(병뚜껑 검사)과 비교</b></summary>
+<summary><b>단계별 처리와 설계 근거</b></summary>
 
-같은 실시간 구조(IP Webcam → FastAPI → OpenCV → 웹)를 유지하면서, 모양이 매번 달라지는 대상(손)에서 **개수**를 세도록 문제를 확장했습니다.
-
-| | 병뚜껑 검사 (수업) | 손가락 검사 (이 프로젝트) |
+| 단계 | 처리 | 근거 |
 |---|---|---|
-| 이진화 | Gray → Otsu | **YCrCb의 Cr 채널** → Otsu (피부색, 조명에 강함) |
-| 특징 | 가장 큰 Contour의 Area Ratio 1개 | 손바닥 중심·반지름(**Distance Transform**) + **원 샘플링** |
-| 기준값 | 기준 이미지 2장의 중간값 | 기준 이미지 없음 (손바닥 크기 대비 비율 규칙) |
-| 출력 | OK / NG | **0~5개** + 목표 개수 지정 시 OK / NG |
-| 실시간 안정화 | 없음 | 최근 5프레임 중 3번 일치해야 결과 변경 |
+| 피부 분리 | YCrCb 변환 후 Cr 채널에 Otsu, 기준값 하한 135 | 피부의 Cr 값은 밝기와 거의 무관해 조명 변화에 강함. 손이 없을 때 Otsu가 배경을 억지로 둘로 나누지 않도록 하한을 둠 |
+| 노이즈 정리 | Opening → Closing, 커널 크기는 이미지 크기에 비례 | 480p부터 원본 사진까지 같은 설정으로 동작 |
+| 손 검출 | 가장 큰 외곽 Contour | 작은 피부색 잡음 제거 |
+| 손바닥 | Distance Transform 최댓값 = 중심, 그 값 = 반지름 r | 손가락과 손목은 손바닥보다 가늘어 최댓값이 손바닥에 잡힘 |
+| 원 샘플링 | 1.5r, 1.75r, 2.0r, 2.3r 원 위 360점에서 손 위에 있는 연속 구간 검출 | 반지름 하나로는 부족함. 작으면 손가락 뿌리가 붙어 보이고, 크면 엄지·새끼가 닿지 않음 |
+| 필터 | 이웃한 두 원에 같은 방향(±15°)으로 모두 걸린 구간만 인정, 아래쪽 45°–135°는 손목으로 제외 | 접힌 손가락 마디는 안쪽 원에만 걸리고, 소매에 잘린 손목은 폭이 아니라 방향으로 구분됨 |
+
+Convexity Defects(손가락 사이 골짜기 수 + 1)도 함께 계산해 대시보드에 표시합니다. 주먹과 손가락 1개는 둘 다 골짜기가 0개라 구분할 수 없으므로 최종 판정에는 쓰지 않습니다.
 
 </details>
 
 ## 시스템 구조
 
-<img src="images/architecture_ko.png" alt="스마트폰 IP Webcam에서 FastAPI, OpenCV, HTML 대시보드로 이어지는 데이터 흐름도" width="100%">
+<img src="images/architecture_ko.png" alt="스마트폰 IP Webcam에서 FastAPI, OpenCV, 웹 대시보드로 이어지는 데이터 흐름" width="100%">
 
-- **카메라 스레드 1개**가 영상을 읽고 검사합니다. 브라우저가 여러 개 열려도 카메라 연결은 하나입니다.
-- 영상(`/stream.mjpg`)과 상태(`/api/status`, 0.4초 주기)를 따로 받아, 영상이 끊겨도 상태 표시는 유지됩니다.
-- 설정이 바뀌면 처리 중이던 프레임 결과를 버려 **이전 설정의 결과가 섞이지 않게** 했습니다.
+- 카메라는 서버의 백그라운드 스레드 하나가 전담합니다. 브라우저 탭이 몇 개 열려 있어도 카메라 연결은 하나입니다.
+- 영상(`/stream.mjpg`)과 상태(`/api/status`, 0.4초 주기)를 분리해, 영상이 잠시 끊겨도 판정 정보는 계속 갱신됩니다.
+- 처리 도중 ROI나 이진화 방식이 바뀌면 그 프레임의 결과는 버립니다. 이전 설정의 결과가 새 설정에 섞이지 않게 하기 위해서입니다.
 
-## 알고리즘
+## 성능
 
-<img src="images/pipeline_ko.jpg" alt="입력, Cr 채널, 이진화 마스크, 손바닥 찾기, 원 샘플링, 결과로 이어지는 6단계와 실제 사진 결과" width="100%">
+| 데이터 | 장수 | Accuracy | 1 | 2 | 3 | 4 | 5 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 실제 스마트폰 사진, 개선 전 | 25 | 0.48 | 3/5 | 3/5 | 2/5 | 2/5 | 2/5 |
+| **실제 스마트폰 사진, 개선 후** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
+| 합성 손 이미지 (0–5 × 5) | 30 | 1.00 | | | | | |
 
-손바닥 중심에서 원을 그려 **손이 원을 가로지르는 구간 수 = 손가락 수**로 셉니다. 모든 기준을 손바닥 반지름 r 대비 비율로 정해, 손이 카메라에서 멀든 가깝든 같은 규칙이 적용됩니다.
+오판 사진을 하나씩 확인해 보니 피부 분리는 거의 완벽했고, 문제는 손목 판정이었습니다. 검은 소매가 손목을 비스듬히 자르면서 손가락만 한 띠가 생겼고, 이것이 "폭이 넓으면 손목"이라는 규칙을 통과했습니다. 손목을 폭이 아닌 **방향**으로 구분하도록 바꿔 0.48에서 0.92로 올렸습니다.
+
+단, 한 장소에서 한 사람의 손을 찍은 25장 기준이므로 일반화 성능으로 보기는 어렵습니다. 다른 조명·배경·사람으로 테스트셋을 넓히는 것이 다음 검증 과제입니다.
 
 <details>
-<summary><b>단계별 처리와 설계 이유</b></summary>
+<summary><b>오류 분석 상세</b></summary>
 
-| 단계 | 처리 | 이렇게 한 이유 |
-|---|---|---|
-| ①&nbsp;이진화 | BGR → YCrCb, **Cr 채널에 Otsu** (기준값 최소 135) | 피부는 밝기(Y)와 무관하게 Cr이 높아 조명 변화에 강함. 손이 없을 때 Otsu가 배경을 억지로 나누지 않도록 하한을 둠 |
-| ②&nbsp;정리 | Opening → Closing, 커널 크기는 이미지 크기에 비례 | 해상도가 달라도 같은 규칙이 적용되도록 |
-| ③&nbsp;손&nbsp;찾기 | 가장 큰 외곽 Contour = 손 | 작은 피부색 잡음 제거 |
-| ④&nbsp;손바닥 | **Distance Transform 최댓값** = 손바닥 중심, 그 값 = 반지름 r | 손가락·손목은 손바닥보다 가늘어서 중심이 자연스럽게 손바닥에 잡힘 |
-| ⑤&nbsp;원&nbsp;샘플링 | 1.5r · 1.75r · 2.0r · 2.3r 원 위 360점에서 손 위에 있는 **연속 구간** 검출 | 구간 하나 = 원을 가로지르는 손가락 하나 |
-| ⑥&nbsp;필터 | 이웃한 두 원에 **같은 방향(±15°)으로 모두 걸린** 구간만 인정, **아래쪽 45°~135°는 손목**으로 제외 | 주먹의 접힌 마디(짧음)와 소매에 잘린 손목(방향)을 걸러냄 |
+1. **증상**: 이진화 마스크는 정상인데 개수가 1→2, 2→3, 4→5처럼 하나 많거나, 5→3처럼 적게 나옴.
+2. **원인 A**: 소매가 손목을 비스듬히 잘라 손바닥 왼쪽 아래에 좁은 띠가 생김. 기존 규칙은 손목을 주로 폭(0.95r 초과)으로 걸러서 이 띠가 손가락으로 세어짐.
+3. **원인 B**: 소매가 손바닥 아래쪽까지 가려 반지름 r이 작게 측정됨. 실제 손가락 폭이 상대적으로 1.0–1.6r로 커져, 엄지·새끼가 손목 기준에 걸려 빠짐.
+4. **수정**: 손바닥 중심 기준 아래쪽 45°–135° 구간을 손목으로 보고, 폭 상한은 2.0r로 완화.
+5. **재발 방지**: 같은 상황을 합성 이미지로 재현한 회귀 테스트를 추가하고, 수정 전 코드에서 실패하는 것을 확인.
 
-참고값으로 **Convexity Defects**(손가락 사이 골짜기 수 + 1)도 계산해 화면에 보여 줍니다. 골짜기가 0개면 0개와 1개를 구분할 수 없어서 최종 판정에는 원 샘플링을 씁니다.
+남은 오답 2건 중 하나는 손을 기울여 손바닥 옆면이 손가락처럼 잡힌 경우, 다른 하나는 손이 너무 가까워 손가락이 화면 밖으로 잘린 경우입니다. 이 25장에 기준값을 더 맞추면 과적합이 될 수 있어 여기서 멈췄습니다.
 
 </details>
 
-## 성능 평가
-
-| 데이터 | 장수 | Accuracy | 1개 | 2개 | 3개 | 4개 | 5개 |
-|---|---|---|---|---|---|---|---|
-| 실제 스마트폰 사진 (개선 전) | 25 | 0.48 | 3/5 | 3/5 | 2/5 | 2/5 | 2/5 |
-| **실제 스마트폰 사진 (개선 후)** | 25 | **0.92** | 5/5 | 4/5 | 4/5 | 5/5 | 5/5 |
-| 가상 손 이미지 (0~5개 × 5) | 30 | 1.00 | | | | | |
-
-결과 이미지를 한 장씩 분석해 **소매에 잘린 손목이 손가락으로 세어지는 문제**를 찾았고, 손목 판정 규칙을 폭에서 방향으로 바꿔 정확도를 0.48에서 0.92로 올렸습니다.
-
-<details>
-<summary><b>문제 해결 과정 자세히 보기</b></summary>
-
-1. **관찰:** 이진화 마스크는 거의 완벽했는데 개수가 하나씩 많거나 적었습니다. 결과 이미지 25장을 모두 열어 원인을 분류했습니다.
-2. **원인:**
-   - 검은 소매가 손목을 비스듬히 자르며 생긴 **좁은 띠**가 "손목 = 폭이 넓은 구간" 규칙을 통과해 손가락으로 세어졌습니다.
-   - 소매가 손바닥 아래를 가려 **반지름이 작게 측정**되자, 엄지·새끼가 손목으로 빠졌습니다.
-3. **해결:** 손목을 **폭이 아니라 방향**(아래쪽 45°~135°)으로 구분하고, 폭 상한을 2.0r로 완화했습니다.
-4. **재발 방지:** 같은 상황을 재현하는 회귀 테스트를 추가하고, 수정 전 코드에서 실패하는 것을 확인했습니다.
-
-남은 오답 2장은 손을 기울여 손바닥 옆면이 잡힌 경우와, 손이 너무 가까워 손가락이 화면 밖으로 잘린 경우입니다. 25장에 과하게 맞추지 않으려고 여기서 멈췄습니다.
-
-</details>
-
-## 품질 관리
-
-자동 테스트 41개(pytest)로 핵심 로직과 서버 API를 검증하고, 실제 버그를 재현한 회귀 테스트로 같은 문제가 다시 생기지 않게 막았습니다.
-
-<details>
-<summary><b>테스트 구성과 실행 명령</b></summary>
-
-```bash
-python -m pytest -q               # 41 passed
-python -m src.finger_batch_test   # 폴더 이름(1~5)을 정답으로 정확도 측정 → CSV 보고서
-```
-
-| 구분 | 확인 내용 |
-|---|---|
-| 핵심 로직 | 가상 손 0~5개 × 촬영 조건 5가지(위치·크기·기울기·밝기), 손 없음, 잘라낸 이미지, 밝은 배경 모드, 잘못된 입력 |
-| 회귀 테스트 | 소매에 잘린 손목 띠를 손가락으로 세지 않는지 (실제 버그 재현) |
-| 서버 API | 화면·정적 파일, 목표 개수 OK/NG 흐름, 5프레임 중 3번 안정화, 입력값 검증(ROI 크기·목표 범위·사설 IP만 허용), 설정 변경 시 결과 초기화 |
-| 카메라 없는 테스트 | `process_frame()`을 카메라 스레드와 분리해 이미지 한 장으로 서버 동작 검증 |
-| 시뮬레이터 | `ipwebcam_simulator.py` — 이미지 폴더를 IP Webcam과 같은 MJPEG로 송출해, 스마트폰 없이 항상 같은 입력으로 전체 흐름을 재현 |
-
-</details>
-
-## 실행 방법
-
-<details>
-<summary><b>설치와 실행 (스마트폰 IP Webcam)</b></summary>
+## 빠른 시작
 
 ```bash
 git clone https://github.com/yonghoonchoi88/finger_counter.git && cd finger_counter
-python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 2
 ```
 
-1. 스마트폰 IP Webcam 앱에서 서버를 시작합니다 (PC와 같은 Wi-Fi).
-2. 브라우저 `http://localhost:8000`에서 주소(예: `http://192.168.0.25:8080/video`)를 입력하고 **카메라 연결**을 누릅니다.
-3. 손 전체가 들어가도록 ROI를 드래그합니다. 목표 개수를 누르면 OK/NG로 판정합니다.
-
-</details>
+브라우저에서 `http://localhost:8000`을 열고 스마트폰 IP Webcam 앱의 주소(예: `http://192.168.0.25:8080/video`)를 연결한 뒤, 손이 들어가도록 검사 영역을 드래그합니다.
 
 <details>
-<summary><b>스마트폰 없이 실행 · 정확도 측정</b></summary>
+<summary><b>스마트폰 없이 실행 · 오프라인 평가</b></summary>
 
 ```bash
-python -m src.make_demo_hands                              # 가상 손 30장 생성
-python -m src.ipwebcam_simulator                           # 터미널 1 → http://127.0.0.1:8081/video
-uvicorn src.fastapi_finger_app:app --port 8000             # 터미널 2
+python -m src.make_demo_hands                    # 합성 손 이미지 30장 생성
+python -m src.ipwebcam_simulator                 # 터미널 1: http://127.0.0.1:8081/video
+uvicorn src.fastapi_finger_app:app --port 8000   # 터미널 2
 
-python -m src.finger_batch_test                            # samples/1~5 실제 사진
-python -m src.finger_batch_test --dir samples/fingers_demo # 가상 손
+python -m src.finger_batch_test                            # samples/1–5 실제 사진
+python -m src.finger_batch_test --dir samples/fingers_demo # 합성 손
 ```
 
-결과: `reports/finger_batch_results.csv`, `outputs/finger_batch/*_result.jpg`
+평가 결과는 `reports/finger_batch_results.csv`와 `outputs/finger_batch/`에 저장되며, 터미널에 혼동 행렬이 출력됩니다.
 
 </details>
+
+## 테스트
+
+`python -m pytest -q`로 41개 테스트를 실행합니다. 카메라 처리를 `process_frame()`으로 분리해 두어 서버 동작까지 이미지 한 장으로 검증합니다.
+
+<details>
+<summary><b>테스트 구성</b></summary>
+
+| 구분 | 내용 |
+|---|---|
+| 파이프라인 | 합성 손 0–5개 × 촬영 조건 5종(위치·크기·기울기·노출), 손 없음, 잘라낸 입력, 밝은 배경 모드, 잘못된 입력 |
+| 회귀 | 소매에 잘린 손목 띠를 손가락으로 세지 않음 (오류 분석의 원인 A) |
+| 서버 | 페이지·정적 파일, 목표 개수 OK/NG, 5프레임 중 3프레임 안정화, 입력 검증(ROI 크기·목표 범위·사설 IP만 허용), 설정 변경 시 결과 초기화 |
+| 시뮬레이터 | `ipwebcam_simulator.py`가 이미지 폴더를 실제 앱과 같은 MJPEG로 송출해 전체 흐름을 같은 입력으로 반복 재현 |
+
+</details>
+
+## 한계와 향후 계획
+
+손가락을 붙이면 하나로 세어질 수 있고, 손이 옆으로 누우면 "아래쪽 = 손목" 가정이 깨집니다. 얼굴이나 팔이 ROI 안에서 손보다 크게 잡히면 손으로 오인할 수 있습니다.
+
+<details>
+<summary><b>향후 계획</b></summary>
+
+- [ ] 주먹(0개)과 다른 장소·조명·사람의 사진으로 테스트셋 확장
+- [ ] 손목 방향을 고정값 대신 손의 주축(PCA)으로 추정해 기울어진 손 대응
+- [ ] MediaPipe Hands와 같은 테스트셋으로 정확도·처리 시간 비교
+- [ ] 수집한 사진으로 경량 분류 모델을 학습하고 이 규칙 기반 결과를 기준선으로 비교
+- [ ] GitHub Actions에서 push마다 테스트와 오프라인 평가 실행
+
+</details>
+
+## 참고
 
 <details>
 <summary><b>프로젝트 구조</b></summary>
@@ -157,17 +158,15 @@ python -m src.finger_batch_test --dir samples/fingers_demo # 가상 손
 ```
 finger_counter/
 ├── src/
-│   ├── finger_counter.py       # 핵심 알고리즘 (이진화 · Contour · Distance Transform · 원 샘플링)
-│   ├── fastapi_finger_app.py   # 실시간 서버 (카메라 스레드 · 안정화 · REST API · MJPEG)
-│   ├── finger_batch_test.py    # 폴더 단위 정확도 측정 · CSV 보고서
-│   ├── make_demo_hands.py      # 가상 손 이미지 생성기
-│   └── ipwebcam_simulator.py   # IP Webcam 시뮬레이터 (이미지 폴더 → MJPEG 송출)
-├── web/
-│   ├── finger_inspection.html  # 대시보드 (영상 · 결과 · 설정 · 동작 원리)
-│   └── static/                 # app.js · style.css
-├── tests/test_finger_counter.py
-├── samples/1~5/                # 실제 손 사진 (정답 = 폴더 이름)
-└── images/                     # 데모 GIF · 구조도 · 알고리즘 그림 (한국어/영어)
+│   ├── finger_counter.py       # 검출 파이프라인
+│   ├── fastapi_finger_app.py   # 실시간 서버 (카메라 스레드, 안정화, REST API, MJPEG)
+│   ├── finger_batch_test.py    # 오프라인 평가
+│   ├── make_demo_hands.py      # 합성 손 이미지 생성
+│   └── ipwebcam_simulator.py   # IP Webcam 시뮬레이터
+├── web/                        # 대시보드 (HTML, JS, CSS)
+├── tests/
+├── samples/1–5/                # 실제 손 사진, 폴더 이름 = 정답
+└── images/                     # README·대시보드용 그림
 ```
 
 </details>
@@ -178,35 +177,17 @@ finger_counter/
 | Method | Path | 설명 |
 |---|---|---|
 | `GET` | `/` | 대시보드 |
-| `GET` | `/stream.mjpg` | 검사 결과를 그린 실시간 영상 (MJPEG) |
-| `GET` | `/api/status` | 카메라 상태 · 손가락 수 · 판정 · 세부 수치 |
-| `POST` | `/api/camera` | IP Webcam 주소 연결 (사설 IP · http(s)만 허용) |
-| `POST` / `DELETE` | `/api/roi` | 검사 영역 설정 / 해제 (0~1 비율 좌표) |
-| `POST` | `/api/target` | 목표 손가락 수 (0~5, `null` = 해제) |
-| `POST` | `/api/settings` | 이진화 방식 `skin` · `dark_bg` · `light_bg`, 마스크 표시 |
-
-</details>
-
-## 한계와 다음 단계
-
-손가락을 붙이면 1개로 셀 수 있고, 손이 옆으로 누우면 손목 방향 규칙이 맞지 않습니다. 얼굴·팔 등 다른 피부가 ROI에 크게 들어오면 손으로 오인할 수 있습니다.
-
-<details>
-<summary><b>다음 단계</b></summary>
-
-- [ ] 주먹(0개) 사진과 다른 장소·조명 사진으로 테스트셋 확장 (현재 한 장소, 1~5개 × 5장)
-- [ ] 손목 방향을 고정값(아래쪽) 대신 손의 주축(PCA)으로 추정해 기울어진 손 대응
-- [ ] MediaPipe Hands(21개 관절 Keypoint)와 같은 테스트셋으로 정확도 · 속도 비교
-- [ ] 직접 수집한 사진으로 경량 분류 모델(CNN) 학습, 규칙 기반을 Baseline으로 비교
-- [ ] GitHub Actions로 push마다 pytest + Batch Test 자동 실행
+| `GET` | `/stream.mjpg` | 판정 결과를 그린 실시간 영상 |
+| `GET` | `/api/status` | 카메라 상태, 손가락 수, 판정, 세부 수치 |
+| `POST` | `/api/camera` | IP Webcam 주소 연결 (사설 IP, http(s)만 허용) |
+| `POST` `DELETE` | `/api/roi` | 검사 영역 설정 / 해제 (0–1 정규화 좌표) |
+| `POST` | `/api/target` | 목표 개수 0–5, `null`이면 해제 |
+| `POST` | `/api/settings` | 이진화 방식 `skin` `dark_bg` `light_bg`, 마스크 표시 여부 |
 
 </details>
 
 ---
 
 <div align="center">
-
-**최용훈 (Yonghoon Choi)** · [@yonghoonchoi88](https://github.com/yonghoonchoi88)<br>
-SQA·테스트 자동화 5년+ → Vision AI 전환 · 비솔 「현장 데이터 기반 Vision AI & 산업분야 Vertical AI 융합 전문가 양성」 과정 미니 프로젝트
-
+<sub>Yonghoon Choi · <a href="https://github.com/yonghoonchoi88">@yonghoonchoi88</a> · QA / Test Automation → Vision AI</sub>
 </div>

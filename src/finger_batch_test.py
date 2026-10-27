@@ -1,27 +1,26 @@
-"""폴더에 모아 둔 손 사진으로 손가락 세기 정확도를 측정합니다. (22_cap_batch_test.py 의 손가락 버전)
+"""Offline evaluation on a labeled image folder.
 
-폴더 구조 (폴더 이름 = 정답 손가락 수)
-samples/
-├── 0/  01.jpg 02.jpg ...
-├── 1/  ...
-└── 5/  ...
+Layout (folder name = ground-truth finger count)::
 
-- 병뚜껑과 달리 Reference 이미지가 필요 없습니다. (규칙만으로 개수를 셈)
-- 사진 전체를 ROI 로 사용합니다. 손 전체가 화면 안에 들어오게 찍으세요.
-- 스마트폰 원본 사진(예: 4000×1848)은 너무 커서 느리므로,
-  긴 변이 --max-side(기본 1280px) 이하가 되도록 줄인 뒤 검사합니다.
-  IP Webcam 프레임 크기와 비슷하게 맞추는 효과도 있습니다.
+    samples/
+    ├── 1/  a.jpg b.jpg ...
+    ├── 2/
+    └── 5/
 
-실행 예
-python -m src.finger_batch_test                            # samples/0 ~ 5
-python -m src.finger_batch_test --dir samples/fingers_demo # 가상 데모 손
-python -m src.finger_batch_test --mode light_bg            # 밝은 배경 · 어두운 손
+The whole image is inspected (no ROI). Phone photos are downscaled so the long
+side is at most ``--max-side`` px: full 12 MP frames are slow and do not resemble
+the 720p-1080p frames the live system sees.
+
+Examples::
+
+    python -m src.finger_batch_test
+    python -m src.finger_batch_test --dir samples/fingers_demo
+    python -m src.finger_batch_test --mode light_bg
 """
 
-# ① 라이브러리
 import argparse
 import csv
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import cv2
@@ -33,16 +32,16 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="손가락 개수 Batch Test")
+    parser = argparse.ArgumentParser(description="Evaluate the finger counter on a labeled folder")
     parser.add_argument("--dir", type=Path, default=ROOT / "samples")
     parser.add_argument("--mode", choices=SEGMENT_MODES, default="skin")
-    parser.add_argument("--max-side", type=int, default=1280, help="긴 변을 이 크기 이하로 줄여서 검사 (0 = 원본)")
+    parser.add_argument("--max-side", type=int, default=1280,
+                        help="downscale so the long side is at most this many px (0 = keep original)")
     parser.add_argument("--out", type=Path, default=ROOT / "outputs" / "finger_batch")
     parser.add_argument("--report", type=Path, default=ROOT / "reports" / "finger_batch_results.csv")
     return parser.parse_args()
 
 
-# ② 정답 폴더(0~5)별 이미지 목록
 def collect(sample_dir: Path) -> list[tuple[int, Path]]:
     items = []
     for folder in sorted(p for p in sample_dir.iterdir() if p.is_dir() and p.name.isdigit()):
@@ -53,26 +52,35 @@ def collect(sample_dir: Path) -> list[tuple[int, Path]]:
     return items
 
 
+def print_confusion(confusion: Counter, labels: list) -> None:
+    preds = sorted({p for _, p in confusion}, key=lambda v: (isinstance(v, str), v))
+    width = max(len(str(p)) for p in preds) + 2
+    print("Confusion matrix (rows = expected, cols = predicted)")
+    print(" " * 6 + "".join(f"{str(p):>{width}}" for p in preds))
+    for e in labels:
+        print(f"{e:>6}" + "".join(f"{confusion[(e, p)] or '.':>{width}}" for p in preds))
+
+
 def main():
     args = parse_args()
     if not args.dir.exists():
-        raise SystemExit(f"샘플 폴더가 없습니다: {args.dir}\n"
-                         "데모로 확인하려면: python -m src.make_demo_hands 후 --dir samples/fingers_demo")
+        raise SystemExit(f"sample folder not found: {args.dir}\n"
+                         "for synthetic data run: python -m src.make_demo_hands")
 
     items = collect(args.dir)
     if not items:
-        raise SystemExit("0~5 이름의 폴더에 이미지를 넣으세요.")
+        raise SystemExit(f"no images under numbered folders (0-5) in {args.dir}")
 
     args.out.mkdir(parents=True, exist_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
 
-    # ③ 모든 이미지에 같은 규칙 적용 · 정답 비교
-    rows, total, correct = [], 0, 0
-    per_class = defaultdict(lambda: [0, 0])          # 정답 개수별 [맞힌 수, 전체 수]
+    rows = []
+    per_class = defaultdict(lambda: [0, 0])     # expected -> [correct, total]
+    confusion = Counter()
     for expected, path in items:
         image = cv2.imread(str(path))
         if image is None:
-            print("읽기 실패:", path)
+            print("unreadable:", path)
             continue
 
         longest = max(image.shape[:2])
@@ -83,12 +91,10 @@ def main():
         result = count_fingers(image, args.mode)
         predicted = result["fingers"] if result["status"] == "COUNTED" else "NO_HAND"
         is_correct = predicted == expected
-        total += 1
-        correct += is_correct
         per_class[expected][0] += is_correct
         per_class[expected][1] += 1
+        confusion[(expected, predicted)] += 1
 
-        # ④ 결과 이미지 저장 (Contour · 손바닥 원 · 센 손가락 표시)
         view = image.copy()
         draw_result(view, result)
         cv2.putText(view, f"expected {expected} / predicted {predicted}", (10, 30),
@@ -107,37 +113,35 @@ def main():
             "finger_widths": " ".join(str(p["width"]) for p in result["finger_points"]),
         })
 
-    if total == 0:
-        raise SystemExit("검사할 이미지가 없습니다.")
+    if not rows:
+        raise SystemExit("no readable images")
 
-    # ⑤ CSV 보고서
     with args.report.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
 
-    # ⑥ 결과 출력 : 전체 정확도 · 개수별 정확도 · 틀린 이미지
-    print("==============================")
-    print("Finger Batch Test 결과")
-    print("==============================")
-    print("확인 이미지 수:", total)
-    print("정답:", correct)
-    print("오답:", total - correct)
-    print("Accuracy:", round(correct / total, 3))
+    total = len(rows)
+    correct = sum(r["correct"] for r in rows)
+    print(f"Images:   {total}")
+    print(f"Correct:  {correct}")
+    print(f"Accuracy: {correct / total:.3f}")
     print()
-    print("손가락 수별 정확도")
     for n in sorted(per_class):
         hit, count = per_class[n]
-        print(f"  {n}개: {hit}/{count}")
+        print(f"  {n}: {hit}/{count}")
+    print()
+    print_confusion(confusion, sorted(per_class))
+
     wrong = [r for r in rows if not r["correct"]]
     if wrong:
         print()
-        print("틀린 이미지")
+        print("Misclassified")
         for r in wrong:
-            print(f"  ✗ {r['file']}: {r['predicted']}개로 판정 (손가락 폭 {r['finger_widths'] or '-'})")
+            print(f"  {r['file']}: predicted {r['predicted']} (run widths {r['finger_widths'] or '-'})")
     print()
-    print("CSV:", args.report)
-    print("결과 이미지:", args.out)
+    print("CSV:   ", args.report)
+    print("Images:", args.out)
 
 
 if __name__ == "__main__":

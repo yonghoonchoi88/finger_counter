@@ -1,13 +1,12 @@
-"""스마트폰 없이 전체 흐름(카메라 → 서버 → 웹 화면)을 확인하는 IP Webcam 시뮬레이터입니다.
+"""Stand-in for the Android IP Webcam app, for end-to-end runs without a phone.
 
-samples/fingers_demo 의 가상 손 이미지를 0 → 1 → … → 5 개 순서로 돌려 가며
-IP Webcam 앱과 같은 MJPEG 형식(/video)으로 보내 줍니다.
+Serves ``/video`` as an MJPEG stream that cycles through the first image of
+each numbered folder. Because the server under test cannot tell it apart from
+a real phone, the full path (capture thread -> counter -> dashboard) is
+exercised with the same input every time.
 
-실행 (터미널 2개)
-1) python -m src.make_demo_hands             # 처음 한 번
-   python -m src.ipwebcam_simulator           # 시뮬레이터 : http://127.0.0.1:8081/video
-2) uvicorn src.fastapi_finger_app:app --port 8000
-   브라우저 http://localhost:8000 → 카메라 주소에 http://127.0.0.1:8081/video 입력
+    python -m src.ipwebcam_simulator                 # http://127.0.0.1:8081/video
+    python -m src.ipwebcam_simulator --dir samples   # replay real photos
 """
 
 import argparse
@@ -27,15 +26,15 @@ def load_frames(sample_dir: Path) -> list[bytes]:
         if image is not None:
             frames.append(cv2.imencode(".jpg", image)[1].tobytes())
     if not frames:
-        raise SystemExit(f"이미지가 없습니다: {sample_dir}  →  python -m src.make_demo_hands 먼저 실행")
+        raise SystemExit(f"no images in {sample_dir} (run: python -m src.make_demo_hands)")
     return frames
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="MJPEG stream that mimics the IP Webcam app")
     parser.add_argument("--dir", type=Path, default=ROOT / "samples" / "fingers_demo")
     parser.add_argument("--port", type=int, default=8081)
-    parser.add_argument("--seconds", type=float, default=2.0, help="이미지 한 장을 보여 줄 시간")
+    parser.add_argument("--seconds", type=float, default=2.0, help="seconds per image")
     args = parser.parse_args()
     frames = load_frames(args.dir)
 
@@ -60,7 +59,7 @@ def main():
         def log_message(self, *_):
             pass
 
-    print(f"IP Webcam 시뮬레이터: http://127.0.0.1:{args.port}/video  (Ctrl+C 종료)")
+    print(f"IP Webcam simulator on http://127.0.0.1:{args.port}/video (Ctrl+C to stop)")
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
 
 

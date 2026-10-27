@@ -1,11 +1,11 @@
-// 손가락 개수 검사 웹 화면 동작 (ROI 선택 · 설정 · 0.4초마다 상태 갱신)
+// Dashboard: ROI selection, settings, and status polling every 400 ms.
 const $ = id => document.getElementById(id);
 const img = $('video');
 const canvas = $('selection');
 const ctx = canvas.getContext('2d');
 let dragging = false, start = null, selected = null, currentTarget = undefined;
 
-// ---------- ROI 선택 (병뚜껑 화면과 동일) ----------
+// ROI selection. Coordinates are sent normalized (0-1) so they survive resizing.
 function sizeCanvas() {
   const box = img.getBoundingClientRect();
   const width = Math.round(box.width), height = Math.round(box.height);
@@ -69,7 +69,7 @@ canvas.addEventListener('pointerup', async e => {
 });
 canvas.addEventListener('pointercancel', () => { dragging = false; drawSelection(); });
 
-// ---------- 버튼 · 설정 ----------
+// Controls
 $('connect').onclick = async () => {
   try {
     await send('POST', '/api/camera', {url: $('camera-url').value.trim()});
@@ -93,7 +93,7 @@ $('show-mask').onchange = async () => {
   catch (err) { $('notice').textContent = err.message; }
 };
 
-// 목표 손가락 수 버튼: 없음, 0 ~ 5
+// Target count buttons: none, 0-5
 const targetValues = [null, 0, 1, 2, 3, 4, 5];
 $('targets').replaceChildren(...targetValues.map(v => {
   const b = document.createElement('button');
@@ -116,7 +116,7 @@ function markTarget(target) {
   }
 }
 
-// ---------- 상태 갱신 ----------
+// Status polling
 const fmt = (v, digits) => v === null || v === undefined ? '-' : Number(v).toFixed(digits);
 async function refreshStatus() {
   try {
@@ -163,7 +163,7 @@ async function refreshStatus() {
 
 img.addEventListener('load', sizeCanvas);
 new ResizeObserver(sizeCanvas).observe(img);
-// ---------- ④ 동작 원리 그림 (데이터 흐름 / 알고리즘 · 한국어 / English) ----------
+// How-it-works figure: architecture / pipeline, Korean / English
 const how = {view: 'architecture', lang: 'ko'};
 const HOW_FILES = {architecture: 'png', pipeline: 'jpg'};
 const HOW_ALT = {architecture: '데이터 흐름 그림', pipeline: '알고리즘 단계 그림'};

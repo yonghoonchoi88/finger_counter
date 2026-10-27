@@ -1,4 +1,4 @@
-/* 손가락 개수 검사 웹 화면 스타일 */
+/* Finger Counter dashboard */
 :root { font-family: "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; color:#17243a; }
 * { box-sizing:border-box; }
 body { margin:0; background:#edf2f9; }
@@ -8,6 +8,7 @@ h1 { margin:0; font-size:clamp(21px,3vw,30px); }
 header p { margin:9px 0 0; color:#dbeaff; }
 .panel { margin-top:15px; background:white; padding:17px; border-radius:12px; box-shadow:0 3px 16px #24436610; }
 .title { display:block; font-weight:750; margin-bottom:8px; }
+.title small { font-weight:500; color:#58677a; font-size:13px; margin-left:6px; }
 .controls { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
 input[type=url] { min-width:220px; flex:1; font-size:15px; padding:11px 12px; border:1px solid #bdcde3; border-radius:8px; }
 select { font-size:14px; padding:8px 10px; border:1px solid #bdcde3; border-radius:8px; background:white; }
@@ -41,7 +42,7 @@ dt { color:#58677a; } dd { margin:0; font-weight:800; text-align:right; }
 .legend i { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
 @media(max-width:760px){ .columns{grid-template-columns:1fr;} main{margin-top:8px} }
 
-/* ④ 동작 원리 */
+/* How it works */
 .how-head { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
 .how-head .seg:first-of-type { margin-left:auto; }
 .seg { display:inline-flex; background:#e3eaf4; border-radius:9px; padding:3px; gap:3px; }

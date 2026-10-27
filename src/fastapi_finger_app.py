@@ -1,16 +1,14 @@
-"""스마트폰 IP Webcam → OpenCV 손가락 세기 → FastAPI 실시간 웹 화면.
+"""Real-time finger counting server: IP Webcam (MJPEG) -> OpenCV -> web dashboard.
 
-병뚜껑 검사(fastapi_cap_app.py)와 같은 구조입니다.
-- 바뀐 점 1 : 기준 이미지(cap_on/cap_off) 대신, 손 이진화 방식(피부색/어두운 배경/밝은 배경)을 고릅니다.
-- 바뀐 점 2 : OK/NG 대신 손가락 개수(0~5)를 보여 줍니다.
-              '목표 개수'를 지정하면 그 개수일 때 OK, 아니면 NG 입니다.
-- 바뀐 점 3 : 손가락을 펴는 도중에 숫자가 흔들리지 않도록
-              최근 5프레임 중 3번 이상 같은 개수가 나와야 화면 숫자를 바꿉니다.
+One background thread owns the camera. It reads a frame, runs the counter on the
+selected ROI, debounces the result and keeps the latest annotated JPEG. HTTP
+handlers only read that shared state, so any number of browser tabs can watch
+without opening extra camera connections.
 
-실행:  uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000
+Run:
+    uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 2
 """
 
-# ① 라이브러리 · 경로
 from collections import Counter, deque
 from contextlib import asynccontextmanager
 import ipaddress
@@ -31,14 +29,18 @@ from src.finger_counter import count_fingers, draw_result
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML_FILE = ROOT / "web" / "finger_inspection.html"
-STATIC_DIR = ROOT / "web" / "static"      # style.css, app.js
-IMAGE_DIR = ROOT / "images"                # 동작 원리 그림 (README 와 같은 파일)
+STATIC_DIR = ROOT / "web" / "static"
+IMAGE_DIR = ROOT / "images"
 
-HISTORY_SIZE = 5      # 최근 몇 프레임을 볼지
-STABLE_COUNT = 3      # 그중 몇 번 같아야 화면 숫자를 바꿀지
+# A count is shown only after it wins 3 of the last 5 frames. Without this the
+# display flickers while a finger is half raised.
+HISTORY_SIZE = 5
+STABLE_COUNT = 3
+
+STALE_FRAME_SECONDS = 5
+MIN_ROI_SIZE = 0.1          # fraction of frame width/height
 
 
-# ② 대기 화면 이미지
 def placeholder_jpg() -> bytes:
     frame = np.full((480, 640, 3), (38, 43, 50), dtype=np.uint8)
     cv2.putText(frame, "IP WEBCAM - WAITING", (65, 227),
@@ -51,9 +53,8 @@ WAITING_JPG = placeholder_jpg()
 DECISION_COLORS = {"OK": (0, 190, 0), "NG": (0, 0, 225), "COUNTED": (0, 190, 0)}
 
 
-# ③ 실시간 상태를 관리하는 클래스
 class LiveState:
-    """한 대의 카메라를 단일 스레드에서 읽고 여러 브라우저에 공유합니다."""
+    """Shared state between the camera thread and the HTTP handlers."""
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -82,7 +83,6 @@ class LiveState:
         self.history.clear()
         self.stable_key = ("WAIT", None)
 
-    # ④ 시작·종료
     def start(self) -> None:
         self.stop_event.clear()
         self.thread = threading.Thread(target=self.camera_loop, daemon=True)
@@ -93,11 +93,12 @@ class LiveState:
         if self.thread is not None:
             self.thread.join(timeout=3)
 
-    # ⑤ 카메라 · ROI · 설정 변경
+    # Settings -----------------------------------------------------------------
+
     def set_camera(self, url: str) -> None:
         with self.lock:
             self.url = url
-            self.roi = None
+            self.roi = None             # an ROI drawn on another camera is meaningless
             self.camera_status = "CONNECTING"
             self.message = "카메라 연결 중입니다."
             self.latest_jpg = WAITING_JPG
@@ -121,7 +122,8 @@ class LiveState:
         with self.lock:
             self.target = target
 
-    # ⑥ 화면 판정 : 손가락 수 + 목표 개수 비교
+    # Status -------------------------------------------------------------------
+
     def _decision(self, status: str, fingers: int | None) -> str:
         if status != "COUNTED":
             return "CHECK" if status == "NO_HAND" else "WAIT"
@@ -134,7 +136,7 @@ class LiveState:
             elapsed = (time.monotonic() - self.last_frame_time
                        if self.last_frame_time else None)
             camera_status = self.camera_status
-            if camera_status == "ONLINE" and elapsed is not None and elapsed > 5:
+            if camera_status == "ONLINE" and elapsed is not None and elapsed > STALE_FRAME_SECONDS:
                 camera_status = "DISCONNECTED"
             result = self.result if camera_status == "ONLINE" else self._empty_result("WAIT")
             return {
@@ -148,9 +150,13 @@ class LiveState:
                 **result,
             }
 
-    # ⑦ 프레임 한 장 처리 (카메라 없이도 테스트할 수 있도록 분리)
-    # - ROI Crop → count_fingers() → 결과 안정화 → 화면 표시용 이미지 반환
+    # Frame processing -----------------------------------------------------------
+
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Inspect one frame and return the annotated image.
+
+        Kept separate from ``camera_loop`` so tests can drive it with still images.
+        """
         with self.lock:
             roi_coords = self.roi
             mode = self.mode
@@ -177,39 +183,46 @@ class LiveState:
                     result = self._empty_result("NO_HAND")
 
         with self.lock:
-            # 처리하는 동안 ROI/방식이 바뀌었다면 이 프레임 결과는 버립니다.
+            # The user may have changed the ROI or mode while this frame was being
+            # processed; publishing it would mix results from two configurations.
             if self.roi != roi_coords or self.mode != mode:
                 return image
             key = (result["status"], result["fingers"])
             self.history.append(key)
             top_key, count = Counter(self.history).most_common(1)[0]
             if count >= STABLE_COUNT and top_key == key:
-                self.stable_key = key          # 3번 이상 같은 결과 → 화면 숫자 변경
+                self.stable_key = key
                 self.result = result
             elif key == self.stable_key:
-                self.result = result           # 같은 개수면 세부 값만 갱신
+                self.result = result        # same count: refresh the detail values only
             decision = self._decision(*self.stable_key)
             stable_fingers = self.stable_key[1]
 
         if roi_coords is not None:
             color = DECISION_COLORS.get(decision, (0, 200, 255))
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
-            # 이진화 결과(손 마스크)를 오른쪽 위에 작게 보여 줍니다. (2일차 Binary 확인용)
             if show_mask and found is not None and found["mask"] is not None:
-                thumb_w = max(80, w // 4)
-                mh, mw = found["mask"].shape
-                thumb_h = max(1, int(mh * thumb_w / mw))
-                if thumb_h < h - 20:
-                    thumb = cv2.resize(found["mask"], (thumb_w, thumb_h), interpolation=cv2.INTER_NEAREST)
-                    image[10:10 + thumb_h, w - thumb_w - 10:w - 10] = cv2.cvtColor(thumb, cv2.COLOR_GRAY2BGR)
-                    cv2.rectangle(image, (w - thumb_w - 10, 10), (w - 10, 10 + thumb_h), (0, 230, 255), 1)
+                self._draw_mask_preview(image, found["mask"])
 
         label = decision if stable_fingers is None else f"{decision}  FINGERS: {stable_fingers}"
         cv2.putText(image, label, (12, h - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 245, 255), 2)
         return image
 
-    # ⑧ 카메라 스레드 : 프레임 읽기 → process_frame → JPEG 저장
+    @staticmethod
+    def _draw_mask_preview(image: np.ndarray, mask: np.ndarray) -> None:
+        """Binary mask thumbnail in the top-right corner, for diagnosing segmentation."""
+        h, w = image.shape[:2]
+        thumb_w = max(80, w // 4)
+        mh, mw = mask.shape
+        thumb_h = max(1, int(mh * thumb_w / mw))
+        if thumb_h >= h - 20:
+            return
+        thumb = cv2.resize(mask, (thumb_w, thumb_h), interpolation=cv2.INTER_NEAREST)
+        image[10:10 + thumb_h, w - thumb_w - 10:w - 10] = cv2.cvtColor(thumb, cv2.COLOR_GRAY2BGR)
+        cv2.rectangle(image, (w - thumb_w - 10, 10), (w - 10, 10 + thumb_h), (0, 230, 255), 1)
+
     def camera_loop(self) -> None:
+        """Read frames until stopped; reconnect when the stream drops or the URL changes."""
         while not self.stop_event.is_set():
             with self.lock:
                 url = self.url
@@ -256,7 +269,6 @@ class LiveState:
             self.stop_event.wait(0.1)
 
 
-# ⑨ 서버 시작·종료 (Lifespan)
 state = LiveState()
 
 
@@ -267,20 +279,17 @@ async def lifespan(_: FastAPI):
     state.stop()
 
 
-app = FastAPI(title="손가락 개수 실시간 검사", lifespan=lifespan)
-
-# web/static 폴더의 CSS·JS 파일을 /static/... 주소로 제공합니다.
+app = FastAPI(title="Finger Counter", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-# images 폴더의 동작 원리 그림을 /assets/... 주소로 제공합니다. (웹 화면 ④ 섹션)
 app.mount("/assets", StaticFiles(directory=IMAGE_DIR), name="assets")
 
 
-# ⑩ 요청 Body 검증 (Pydantic)
 class CameraRequest(BaseModel):
     url: str
 
 
 class ROIRequest(BaseModel):
+    """ROI in normalized coordinates, independent of the camera resolution."""
     x1: float = Field(ge=0.0, le=1.0)
     y1: float = Field(ge=0.0, le=1.0)
     x2: float = Field(ge=0.0, le=1.0)
@@ -296,7 +305,6 @@ class TargetRequest(BaseModel):
     target: int | None = Field(default=None, ge=0, le=5)
 
 
-# ⑪ 화면 · 카메라 · ROI (병뚜껑 앱과 동일)
 @app.get("/")
 def index():
     return FileResponse(HTML_FILE, media_type="text/html")
@@ -304,17 +312,19 @@ def index():
 
 @app.post("/api/camera")
 def connect_camera(body: CameraRequest):
+    # The server opens whatever URL it is given, so only private / loopback
+    # addresses are accepted to keep it from being used to reach the internet.
     url = body.url.strip()
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise HTTPException(400, "http(s)://IP:PORT/video 형식으로 입력하세요.")
     if parts.username or parts.password:
-        raise HTTPException(400, "사용자 인증이 없는 교육용 IP Webcam 주소만 사용하세요.")
+        raise HTTPException(400, "인증 정보가 포함된 주소는 지원하지 않습니다.")
     try:
         addr = ipaddress.ip_address(parts.hostname)
         if not (addr.is_private or addr.is_loopback):
-            raise ValueError("사설 IP 주소가 아닙니다")
-        _ = parts.port
+            raise ValueError("not a private address")
+        _ = parts.port              # raises ValueError for a non-numeric port
     except ValueError:
         raise HTTPException(400, "스마트폰의 사설 IP 주소(예: 192.168.x.x)를 사용하세요.")
     state.set_camera(url)
@@ -323,7 +333,7 @@ def connect_camera(body: CameraRequest):
 
 @app.post("/api/roi")
 def set_roi(body: ROIRequest):
-    if body.x2 - body.x1 < 0.1 or body.y2 - body.y1 < 0.1:
+    if body.x2 - body.x1 < MIN_ROI_SIZE or body.y2 - body.y1 < MIN_ROI_SIZE:
         raise HTTPException(400, "ROI가 너무 작습니다. 손 전체가 들어가도록 넓게 드래그하세요.")
     state.set_roi((body.x1, body.y1, body.x2, body.y2))
     return {"ok": True, "roi": body.model_dump()}
@@ -335,7 +345,6 @@ def reset_roi():
     return {"ok": True}
 
 
-# ⑫ 이진화 방식 · 마스크 보기 · 목표 개수
 @app.post("/api/settings")
 def set_settings(body: SettingsRequest):
     state.set_settings(body.mode, body.show_mask)
@@ -348,7 +357,6 @@ def set_target(body: TargetRequest):
     return {"ok": True, "target": body.target}
 
 
-# ⑬ 상태 조회 · MJPEG 영상
 @app.get("/api/status")
 def get_status():
     return state.get_status()
@@ -364,7 +372,7 @@ def stream_video():
                    b"Content-Type: image/jpeg\r\n"
                    b"Cache-Control: no-cache\r\n\r\n"
                    + image_bytes + b"\r\n")
-            time.sleep(0.10)
+            time.sleep(0.10)        # cap the browser stream at ~10 fps
 
     return StreamingResponse(
         frames(), media_type="multipart/x-mixed-replace; boundary=frame",
