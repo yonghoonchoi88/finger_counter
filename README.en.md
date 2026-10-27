@@ -12,7 +12,7 @@
 
 [한국어](README.md) · **English**
 
-<img src="docs/images/demo.gif" alt="Web dashboard counting fingers in real time and judging OK/NG against a target count" width="860">
+<img src="images/demo.gif" alt="Web dashboard counting fingers in real time and judging OK/NG against a target count" width="860">
 
 <sub>The dashboard UI is in Korean; the diagrams below are in English.</sub>
 
@@ -25,8 +25,8 @@
 | **What** | Counts the fingers in a live smartphone (IP Webcam) stream and judges **OK / NG** against a target count |
 | **How** | A **rule-based OpenCV pipeline** with no training data — skin segmentation, contours, distance transform, ring sampling |
 | **Results** | **Accuracy 0.48 → 0.92** on 25 real smartphone photos |
-| **Quality** | 41 automated tests, a regression test that reproduces a real bug, and a fake IP Webcam for camera-free testing |
-| **Context** | A mini project extending the "web-based bottle-cap inspection" lab from a Vision AI training program |
+| **Quality** | 41 automated tests, a regression test that reproduces a real bug, and an **IP Webcam simulator** that replays the full pipeline without a phone |
+| **Context** | Extends a class lab — bottle-cap presence check (one feature → OK/NG) — to **counting parts of an object whose shape keeps changing**: the same problem structure as part-count and missing-part inspection on a production line |
 
 <details>
 <summary><b>Compared with the bottle-cap lab</b></summary>
@@ -45,7 +45,7 @@ The project keeps the same real-time architecture (IP Webcam → FastAPI → Ope
 
 ## Architecture
 
-<img src="docs/images/architecture_en.png" alt="Data flow from the smartphone IP Webcam through FastAPI and OpenCV to the HTML dashboard" width="100%">
+<img src="images/architecture_en.png" alt="Data flow from the smartphone IP Webcam through FastAPI and OpenCV to the HTML dashboard" width="100%">
 
 - **A single camera thread** reads and inspects frames, so any number of browser tabs share one camera connection.
 - Video (`/stream.mjpg`) and state (`/api/status`, every 0.4 s) are fetched separately, so the status panel survives a stalled stream.
@@ -53,7 +53,7 @@ The project keeps the same real-time architecture (IP Webcam → FastAPI → Ope
 
 ## Algorithm
 
-<img src="docs/images/pipeline_en.jpg" alt="Six steps — input, Cr channel, binary mask, palm, ring sampling, result — and results on real photos" width="100%">
+<img src="images/pipeline_en.jpg" alt="Six steps — input, Cr channel, binary mask, palm, ring sampling, result — and results on real photos" width="100%">
 
 Rings are drawn around the palm center, and **each run where the hand crosses a ring is one finger**. Every rule is relative to the palm radius *r*, so the same logic works whether the hand is near or far.
 
@@ -115,7 +115,7 @@ python -m src.finger_batch_test   # accuracy with folder names (1–5) as labels
 | Regression | A sleeve-cut wrist strip is not counted as a finger (reproduces a real bug) |
 | Server API | Page and static files, target OK/NG flow, 3-of-5 debouncing, input validation (ROI size, target range, private IPs only), result reset on setting change |
 | Camera-free | `process_frame()` is decoupled from the camera thread, so server behavior is tested with single images |
-| Manual | `fake_ipwebcam.py` streams an image folder as MJPEG, exactly like the IP Webcam app |
+| Simulator | `ipwebcam_simulator.py` streams an image folder as MJPEG, exactly like the IP Webcam app, so the full pipeline can be replayed with the same input and no phone |
 
 </details>
 
@@ -142,7 +142,7 @@ uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful
 
 ```bash
 python -m src.make_demo_hands                              # generate 30 synthetic hands
-python -m src.fake_ipwebcam                                # terminal 1 → http://127.0.0.1:8081/video
+python -m src.ipwebcam_simulator                           # terminal 1 → http://127.0.0.1:8081/video
 uvicorn src.fastapi_finger_app:app --port 8000             # terminal 2
 
 python -m src.finger_batch_test                            # real photos in samples/1–5
@@ -164,13 +164,13 @@ finger_counter/
 │   ├── fastapi_finger_app.py   # real-time server (camera thread · debouncing · REST API · MJPEG)
 │   ├── finger_batch_test.py    # folder-level accuracy measurement · CSV report
 │   ├── make_demo_hands.py      # synthetic hand generator
-│   └── fake_ipwebcam.py        # fake IP Webcam for testing (MJPEG)
+│   └── ipwebcam_simulator.py   # IP Webcam simulator (image folder → MJPEG)
 ├── web/
 │   ├── finger_inspection.html  # dashboard (video · result · settings · how it works)
 │   └── static/                 # app.js · style.css
 ├── tests/test_finger_counter.py
 ├── samples/1~5/                # real hand photos (label = folder name)
-└── docs/images/                # demo GIF · architecture · pipeline (Korean / English)
+└── images/                     # demo GIF · architecture · pipeline (Korean / English)
 ```
 
 </details>

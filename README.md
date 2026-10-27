@@ -12,7 +12,7 @@
 
 **한국어** · [English](README.en.md)
 
-<img src="docs/images/demo.gif" alt="웹 대시보드에서 실시간으로 손가락 개수를 세고 목표 개수와 비교해 OK/NG를 판정하는 화면" width="860">
+<img src="images/demo.gif" alt="웹 대시보드에서 실시간으로 손가락 개수를 세고 목표 개수와 비교해 OK/NG를 판정하는 화면" width="860">
 
 </div>
 
@@ -23,8 +23,8 @@
 | **무엇을** | 스마트폰(IP Webcam) 영상 속 손가락 개수를 실시간으로 세고, 목표 개수와 비교해 **OK / NG** 판정 |
 | **어떻게** | 학습 데이터 없는 **규칙 기반 OpenCV 파이프라인** — 피부색 이진화 · Contour · Distance Transform · 원 샘플링 |
 | **결과** | 실제 스마트폰 사진 25장 **Accuracy 0.48 → 0.92** |
-| **품질** | 자동 테스트 41개, 실제 버그를 재현한 회귀 테스트, 카메라 없이 돌리는 가짜 IP Webcam |
-| **배경** | 비솔 Vision AI 교육과정 머신비전 실습 「웹 실행 병뚜껑 검사」를 응용한 미니 프로젝트 |
+| **품질** | 자동 테스트 41개, 실제 버그를 재현한 회귀 테스트, **IP Webcam 시뮬레이터**로 스마트폰 없이 전체 흐름 재현 |
+| **배경** | 수업 실습 「병뚜껑 유무 검사」(특징 1개 → OK/NG)를 **모양이 매번 달라지는 대상의 개수 검사**로 확장. 생산 라인의 부품 수량·누락 검사와 같은 구조의 문제 |
 
 <details>
 <summary><b>수업 실습(병뚜껑 검사)과 비교</b></summary>
@@ -43,7 +43,7 @@
 
 ## 시스템 구조
 
-<img src="docs/images/architecture_ko.png" alt="스마트폰 IP Webcam에서 FastAPI, OpenCV, HTML 대시보드로 이어지는 데이터 흐름도" width="100%">
+<img src="images/architecture_ko.png" alt="스마트폰 IP Webcam에서 FastAPI, OpenCV, HTML 대시보드로 이어지는 데이터 흐름도" width="100%">
 
 - **카메라 스레드 1개**가 영상을 읽고 검사합니다. 브라우저가 여러 개 열려도 카메라 연결은 하나입니다.
 - 영상(`/stream.mjpg`)과 상태(`/api/status`, 0.4초 주기)를 따로 받아, 영상이 끊겨도 상태 표시는 유지됩니다.
@@ -51,7 +51,7 @@
 
 ## 알고리즘
 
-<img src="docs/images/pipeline_ko.jpg" alt="입력, Cr 채널, 이진화 마스크, 손바닥 찾기, 원 샘플링, 결과로 이어지는 6단계와 실제 사진 결과" width="100%">
+<img src="images/pipeline_ko.jpg" alt="입력, Cr 채널, 이진화 마스크, 손바닥 찾기, 원 샘플링, 결과로 이어지는 6단계와 실제 사진 결과" width="100%">
 
 손바닥 중심에서 원을 그려 **손이 원을 가로지르는 구간 수 = 손가락 수**로 셉니다. 모든 기준을 손바닥 반지름 r 대비 비율로 정해, 손이 카메라에서 멀든 가깝든 같은 규칙이 적용됩니다.
 
@@ -113,7 +113,7 @@ python -m src.finger_batch_test   # 폴더 이름(1~5)을 정답으로 정확도
 | 회귀 테스트 | 소매에 잘린 손목 띠를 손가락으로 세지 않는지 (실제 버그 재현) |
 | 서버 API | 화면·정적 파일, 목표 개수 OK/NG 흐름, 5프레임 중 3번 안정화, 입력값 검증(ROI 크기·목표 범위·사설 IP만 허용), 설정 변경 시 결과 초기화 |
 | 카메라 없는 테스트 | `process_frame()`을 카메라 스레드와 분리해 이미지 한 장으로 서버 동작 검증 |
-| 수동 테스트 | `fake_ipwebcam.py` — 이미지 폴더를 IP Webcam과 같은 MJPEG로 송출 |
+| 시뮬레이터 | `ipwebcam_simulator.py` — 이미지 폴더를 IP Webcam과 같은 MJPEG로 송출해, 스마트폰 없이 항상 같은 입력으로 전체 흐름을 재현 |
 
 </details>
 
@@ -140,7 +140,7 @@ uvicorn src.fastapi_finger_app:app --host 0.0.0.0 --port 8000 --timeout-graceful
 
 ```bash
 python -m src.make_demo_hands                              # 가상 손 30장 생성
-python -m src.fake_ipwebcam                                # 터미널 1 → http://127.0.0.1:8081/video
+python -m src.ipwebcam_simulator                           # 터미널 1 → http://127.0.0.1:8081/video
 uvicorn src.fastapi_finger_app:app --port 8000             # 터미널 2
 
 python -m src.finger_batch_test                            # samples/1~5 실제 사진
@@ -161,13 +161,13 @@ finger_counter/
 │   ├── fastapi_finger_app.py   # 실시간 서버 (카메라 스레드 · 안정화 · REST API · MJPEG)
 │   ├── finger_batch_test.py    # 폴더 단위 정확도 측정 · CSV 보고서
 │   ├── make_demo_hands.py      # 가상 손 이미지 생성기
-│   └── fake_ipwebcam.py        # 테스트용 가짜 IP Webcam (MJPEG 송출)
+│   └── ipwebcam_simulator.py   # IP Webcam 시뮬레이터 (이미지 폴더 → MJPEG 송출)
 ├── web/
 │   ├── finger_inspection.html  # 대시보드 (영상 · 결과 · 설정 · 동작 원리)
 │   └── static/                 # app.js · style.css
 ├── tests/test_finger_counter.py
 ├── samples/1~5/                # 실제 손 사진 (정답 = 폴더 이름)
-└── docs/images/                # 데모 GIF · 구조도 · 알고리즘 그림 (한국어/영어)
+└── images/                     # 데모 GIF · 구조도 · 알고리즘 그림 (한국어/영어)
 ```
 
 </details>

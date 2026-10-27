@@ -1,11 +1,11 @@
-"""스마트폰 없이 웹 화면을 확인할 때 쓰는 '가짜 IP Webcam' 서버입니다.
+"""스마트폰 없이 전체 흐름(카메라 → 서버 → 웹 화면)을 확인하는 IP Webcam 시뮬레이터입니다.
 
 samples/fingers_demo 의 가상 손 이미지를 0 → 1 → … → 5 개 순서로 돌려 가며
 IP Webcam 앱과 같은 MJPEG 형식(/video)으로 보내 줍니다.
 
 실행 (터미널 2개)
 1) python -m src.make_demo_hands             # 처음 한 번
-   python -m src.fake_ipwebcam                # 가짜 카메라 : http://127.0.0.1:8081/video
+   python -m src.ipwebcam_simulator           # 시뮬레이터 : http://127.0.0.1:8081/video
 2) uvicorn src.fastapi_finger_app:app --port 8000
    브라우저 http://localhost:8000 → 카메라 주소에 http://127.0.0.1:8081/video 입력
 """
@@ -60,7 +60,7 @@ def main():
         def log_message(self, *_):
             pass
 
-    print(f"가짜 IP Webcam: http://127.0.0.1:{args.port}/video  (Ctrl+C 종료)")
+    print(f"IP Webcam 시뮬레이터: http://127.0.0.1:{args.port}/video  (Ctrl+C 종료)")
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
 
 
