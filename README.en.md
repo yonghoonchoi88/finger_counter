@@ -9,6 +9,7 @@ A real-time vision inspector that counts raised fingers (0–5) in a smartphone 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Tests](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#tests)
 [![Accuracy](https://img.shields.io/badge/accuracy-0.92-1957BF)](#results)
+[![Technical docs on Figma](https://img.shields.io/badge/Figma-Technical%20Docs-F24E1E?logo=figma&logoColor=white)](https://www.figma.com/design/dqYOev901OMWJN59N71xoP/finger_counter)
 
 <img src="images/demo.gif" alt="Web dashboard counting fingers in real time and judging OK/NG against a target count" width="860">
 
