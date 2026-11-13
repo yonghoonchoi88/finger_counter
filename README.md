@@ -9,6 +9,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Tests](https://img.shields.io/badge/tests-41%20passed-2EA44F?logo=pytest&logoColor=white)](#테스트)
 [![Accuracy](https://img.shields.io/badge/accuracy-0.92-1957BF)](#성능)
+[![Figma 기술 문서](https://img.shields.io/badge/Figma-%EA%B8%B0%EC%88%A0%20%EB%AC%B8%EC%84%9C-F24E1E?logo=figma&logoColor=white)](https://www.figma.com/design/dqYOev901OMWJN59N71xoP/finger_counter)
 
 <img src="images/demo.gif" alt="웹 대시보드에서 실시간으로 손가락 수를 세고 목표 개수와 비교해 OK/NG를 판정하는 화면" width="860">
 
